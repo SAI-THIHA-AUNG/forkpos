@@ -249,15 +249,21 @@ class SyncService
             $group = $row['customer_group'] ? CustomerGroup::firstOrCreate(['name' => $row['customer_group']]) : null;
             $territory = $row['territory'] ? Territory::firstOrCreate(['name' => $row['territory']]) : null;
 
+            $isWalkIn = str_contains(strtolower((string) ($row['customer_name'] ?? '')), 'walk-in');
+
+            // Key the walk-in by its flag (not erpnext_id) so the seeded
+            // walk-in gets linked to ERPNext instead of being duplicated.
             Customer::withTrashed()->updateOrCreate(
-                ['erpnext_id' => $row['name']],
+                $isWalkIn ? ['is_walk_in' => true] : ['erpnext_id' => $row['name']],
                 [
+                    'erpnext_id' => $row['name'],
                     'customer_code' => mb_substr($row['name'], 0, 32),
                     'customer_name' => $row['customer_name'] ?: $row['name'],
                     'customer_group_id' => $group?->id,
                     'territory_id' => $territory?->id,
                     'email' => $row['email_id'] ?? null,
                     'phone' => $row['mobile_no'] ?? null,
+                    'is_walk_in' => $isWalkIn,
                 ]
             )->restore();
             $count++;

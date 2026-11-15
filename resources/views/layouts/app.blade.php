@@ -37,8 +37,8 @@
 <body class="bg-slate-100 text-slate-800 font-sans antialiased">
 @auth
 @if(session()->has('pos_profile_id'))
-<div class="no-print">
-    <aside id="sidebar" class="fixed inset-y-0 left-0 w-56 bg-slate-900 text-slate-300 flex flex-col py-4 z-30 transition-all duration-200 overflow-hidden whitespace-nowrap">
+<div>
+    <aside id="sidebar" class="no-print fixed inset-y-0 left-0 w-56 bg-slate-900 text-slate-300 flex flex-col py-4 z-30 transition-all duration-200 overflow-hidden whitespace-nowrap">
         <a href="{{ route('pos.register') }}" class="brand flex items-center gap-2 px-4 mb-6">
             <span class="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center font-bold text-lg shrink-0">F</span>
             <span class="brand-text font-semibold text-white text-sm">ForkPOS</span>
