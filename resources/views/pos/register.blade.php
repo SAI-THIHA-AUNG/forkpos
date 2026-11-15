@@ -86,7 +86,7 @@
 
 @section('scripts')
 <script>
-const CURRENCY = {{ json_encode($currency) }};
+const CURRENCY = @json($currency);
 const PRECISION = {{ $precision }};
 const PROFILE = {
     id: {{ $profile->id }},
