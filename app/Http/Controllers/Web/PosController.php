@@ -33,7 +33,9 @@ class PosController extends Controller
         $profile = $request->attributes->get('posProfile');
         $setting = Setting::current();
 
-        $groups = ItemGroup::orderBy('name')->get(['id', 'name']);
+        $groups = ItemGroup::where('is_group', false)
+            ->orderBy('name')
+            ->get(['id', 'name']);
         $currentShift = $this->shifts->currentOpenShift($request->user());
 
         // If the profile requires a shift and the cashier has none, kick them out.

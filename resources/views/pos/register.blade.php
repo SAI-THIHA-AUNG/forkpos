@@ -32,7 +32,7 @@
             <div id="items" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                 {{-- seeded by JS --}}
             </div>
-            <div id="loading" class="text-center text-slate-400 text-sm py-8">Loading items…</div>
+            <div id="loading" class="text-center text-slate-400 text-sm py-8">No items found</div>
         </div>
     </div>
 
