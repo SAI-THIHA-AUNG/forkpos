@@ -33,7 +33,10 @@ class PosController extends Controller
         $profile = $request->attributes->get('posProfile');
         $setting = Setting::current();
 
+        // Only show leaf categories that actually contain sellable items
+        // (hide empty groups to avoid wasting space on the register).
         $groups = ItemGroup::where('is_group', false)
+            ->whereHas('items', fn ($q) => $q->where('disabled', false))
             ->orderBy('name')
             ->get(['id', 'name']);
         $currentShift = $this->shifts->currentOpenShift($request->user());

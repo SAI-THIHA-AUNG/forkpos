@@ -12,7 +12,7 @@
 
     {{-- Left: catalog --}}
     <div class="flex flex-col gap-3 min-h-0">
-        {{-- Search + barcode --}}
+        {{-- Search + barcode + view toggle --}}
         <div class="flex gap-2">
             <input id="search" type="search" placeholder="Search items or scan barcode…" autofocus
                    class="flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none">
@@ -22,6 +22,10 @@
                 <option value="{{ $g->id }}">{{ $g->name }}</option>
                 @endforeach
             </select>
+            <div class="flex rounded-lg border border-slate-300 overflow-hidden">
+                <button type="button" data-view="card" class="view-btn px-3 py-2 text-sm bg-brand-600 text-white">Card</button>
+                <button type="button" data-view="list" class="view-btn px-3 py-2 text-sm bg-white text-slate-600">List</button>
+            </div>
         </div>
 
         {{-- Category tiles --}}
@@ -141,6 +145,8 @@ let cart = []; // [{item_id, item_code, item_name, uom, qty, rate, price_list_ra
 })();
 
 // ---- Render product grid ------------------------------------------------
+let viewMode = 'card';
+
 function renderItems() {
     const q = document.getElementById('search').value.trim().toLowerCase();
     const groupId = document.getElementById('group-filter').value;
@@ -151,7 +157,18 @@ function renderItems() {
     });
     const grid = document.getElementById('items');
     document.getElementById('loading').style.display = items.length ? 'none' : 'block';
-    grid.innerHTML = items.map(i => `
+
+    // Switch container between card grid and list
+    grid.className = viewMode === 'list'
+        ? 'divide-y divide-slate-100'
+        : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3';
+
+    grid.innerHTML = items.map(i => viewMode === 'list' ? renderListItem(i) : renderCardItem(i)).join('');
+    grid.querySelectorAll('button').forEach(b => b.addEventListener('click', () => addToCart(parseInt(b.dataset.id))));
+}
+
+function renderCardItem(i) {
+    return `
         <button class="text-left p-3 rounded-lg border border-slate-200 hover:border-brand-500 hover:shadow-sm transition bg-white group" data-id="${i.id}">
             <div class="aspect-square mb-2 rounded bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-400 text-2xl font-bold">${i.item_name.charAt(0)}</div>
             <p class="text-xs font-medium text-slate-700 line-clamp-2 group-hover:text-brand-700">${i.item_name}</p>
@@ -160,11 +177,38 @@ function renderItems() {
                 ${i.is_stock_item ? `<span class="text-[10px] ${i.stock_qty > 0 ? 'text-green-600' : 'text-red-500'}">${i.stock_qty > 0 ? i.stock_qty+' '+i.uom : 'out'}</span>` : ''}
             </div>
         </button>
-    `).join('');
-    grid.querySelectorAll('button').forEach(b => b.addEventListener('click', () => addToCart(parseInt(b.dataset.id))));
+    `;
 }
+
+function renderListItem(i) {
+    return `
+        <button class="w-full text-left px-3 py-2 hover:bg-slate-50 transition flex items-center gap-3" data-id="${i.id}">
+            <span class="w-8 h-8 rounded bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-400 text-sm font-bold shrink-0">${i.item_name.charAt(0)}</span>
+            <span class="flex-1 min-w-0">
+                <span class="block text-sm font-medium text-slate-700 truncate">${i.item_name}</span>
+                <span class="block text-xs text-slate-400 truncate">${i.item_code}</span>
+            </span>
+            <span class="text-sm font-semibold text-brand-700 shrink-0">${CURRENCY}${i.rate.toFixed(PRECISION)}</span>
+            ${i.is_stock_item ? `<span class="text-[10px] ${i.stock_qty > 0 ? 'text-green-600' : 'text-red-500'} shrink-0 w-12 text-right">${i.stock_qty > 0 ? i.stock_qty+' '+i.uom : 'out'}</span>` : ''}
+        </button>
+    `;
+}
+
 document.getElementById('search').addEventListener('input', renderItems);
 document.getElementById('group-filter').addEventListener('change', renderItems);
+
+// View toggle (card / list)
+document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        viewMode = btn.dataset.view;
+        document.querySelectorAll('.view-btn').forEach(b => {
+            const active = b.dataset.view === viewMode;
+            b.className = 'view-btn px-3 py-2 text-sm ' + (active ? 'bg-brand-600 text-white' : 'bg-white text-slate-600');
+        });
+        renderItems();
+    });
+});
+
 renderItems();
 
 // ---- Barcode scanning --------------------------------------------------

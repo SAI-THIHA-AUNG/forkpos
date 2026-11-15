@@ -42,7 +42,13 @@
             <a href="{{ route('customers.index') }}" class="w-10 h-10 rounded-md flex items-center justify-center hover:bg-slate-800 {{ request()->routeIs('customers.*') ? 'bg-slate-800 text-white' : '' }}" title="Customers">👤</a>
             <a href="{{ route('dashboard') }}" class="w-10 h-10 rounded-md flex items-center justify-center hover:bg-slate-800 {{ request()->routeIs('dashboard*') ? 'bg-slate-800 text-white' : '' }}" title="Dashboard">📊</a>
             @if(auth()->user()->isManager())
-            <a href="{{ route('sync.index') }}" class="w-10 h-10 rounded-md flex items-center justify-center hover:bg-slate-800 {{ request()->routeIs('sync.*') ? 'bg-slate-800 text-white' : '' }}" title="Sync">Sync</a>
+            <a href="{{ route('sync.index') }}" class="relative w-10 h-10 rounded-md flex items-center justify-center hover:bg-slate-800 {{ request()->routeIs('sync.*') ? 'bg-slate-800 text-white' : '' }}" title="Sync">
+                Sync
+                @php($pendingSync = \App\Models\Invoice::whereIn('sync_status', ['pending', 'failed'])->count())
+                @if($pendingSync > 0)
+                <span class="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center">{{ $pendingSync }}</span>
+                @endif
+            </a>
             <a href="{{ route('settings.edit') }}" class="w-10 h-10 rounded-md flex items-center justify-center hover:bg-slate-800 {{ request()->routeIs('settings.*') ? 'bg-slate-800 text-white' : '' }}" title="Settings">⚙</a>
             @endif
         </nav>
