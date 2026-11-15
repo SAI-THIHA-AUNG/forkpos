@@ -13,11 +13,25 @@ class CustomerController extends Controller
     /** GET /customers?q= */
     public function index(Request $request)
     {
-        $customers = Customer::with('group')
+        $customers = Customer::with('group', 'territory')
             ->orderBy('customer_name')
             ->when($q = $request->query('q'), fn ($query) => $query->search($q))
             ->when($request->boolean('walk_in_only'), fn ($query) => $query->where('is_walk_in', true))
             ->paginate(25);
+
+        // The register's customer picker fetches this route as JSON (live
+        // type-to-search). Return a compact payload for AJAX requests.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'data' => $customers->map(fn (Customer $c) => [
+                    'id' => $c->id,
+                    'customer_code' => $c->customer_code,
+                    'customer_name' => $c->customer_name,
+                    'phone' => $c->phone,
+                    'territory' => $c->territory?->name,
+                ])->values(),
+            ]);
+        }
 
         return view('pos.customers.index', ['customers' => $customers, 'q' => $q]);
     }
