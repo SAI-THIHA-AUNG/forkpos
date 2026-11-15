@@ -26,6 +26,12 @@
             .no-print { display: none !important; }
             .print-area { position: absolute; left: 0; top: 0; width: 100%; }
         }
+        /* Collapsed sidebar: icons only, hide labels, center icons */
+        #sidebar .nav-text, #sidebar .brand-text { white-space: nowrap; }
+        #sidebar.collapsed .nav-text, #sidebar.collapsed .brand-text { display: none; }
+        #sidebar.collapsed .brand,
+        #sidebar.collapsed nav a,
+        #sidebar.collapsed form button { justify-content: center; padding-left: 0.25rem; padding-right: 0.25rem; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 font-sans antialiased">
@@ -33,43 +39,43 @@
 @if(session()->has('pos_profile_id'))
 <div class="no-print">
     <aside id="sidebar" class="fixed inset-y-0 left-0 w-56 bg-slate-900 text-slate-300 flex flex-col py-4 z-30 transition-all duration-200 overflow-hidden whitespace-nowrap">
-        <a href="{{ route('pos.register') }}" class="flex items-center gap-2 px-4 mb-6">
+        <a href="{{ route('pos.register') }}" class="brand flex items-center gap-2 px-4 mb-6">
             <span class="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center font-bold text-lg shrink-0">F</span>
-            <span class="font-semibold text-white text-sm">ForkPOS</span>
+            <span class="brand-text font-semibold text-white text-sm">ForkPOS</span>
         </a>
         <nav class="flex-1 flex flex-col gap-1 px-2">
             <a href="{{ route('pos.register') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('pos.register') ? 'bg-slate-800 text-white' : '' }}" title="Register">
-                <span class="w-5 text-center text-lg shrink-0">🛒</span><span class="text-sm">Register</span>
+                <span class="w-5 text-center text-lg shrink-0">🛒</span><span class="nav-text text-sm">Register</span>
             </a>
             <a href="{{ route('shifts.current') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('shifts.*') ? 'bg-slate-800 text-white' : '' }}" title="Shifts">
-                <span class="w-5 text-center text-lg shrink-0">🕐</span><span class="text-sm">Shifts</span>
+                <span class="w-5 text-center text-lg shrink-0">🕐</span><span class="nav-text text-sm">Shifts</span>
             </a>
             <a href="{{ route('invoices.index') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('invoices.*') ? 'bg-slate-800 text-white' : '' }}" title="Sales">
-                <span class="w-5 text-center text-lg shrink-0">🧾</span><span class="text-sm">Sales</span>
+                <span class="w-5 text-center text-lg shrink-0">🧾</span><span class="nav-text text-sm">Sales</span>
             </a>
             <a href="{{ route('customers.index') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('customers.*') ? 'bg-slate-800 text-white' : '' }}" title="Customers">
-                <span class="w-5 text-center text-lg shrink-0">👤</span><span class="text-sm">Customers</span>
+                <span class="w-5 text-center text-lg shrink-0">👤</span><span class="nav-text text-sm">Customers</span>
             </a>
             <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('dashboard*') ? 'bg-slate-800 text-white' : '' }}" title="Dashboard">
-                <span class="w-5 text-center text-lg shrink-0">📊</span><span class="text-sm">Dashboard</span>
+                <span class="w-5 text-center text-lg shrink-0">📊</span><span class="nav-text text-sm">Dashboard</span>
             </a>
             @if(auth()->user()->isManager())
             <a href="{{ route('sync.index') }}" class="relative flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('sync.*') ? 'bg-slate-800 text-white' : '' }}" title="Sync">
-                <span class="w-5 text-center text-lg shrink-0">🔄</span><span class="text-sm">Sync</span>
+                <span class="w-5 text-center text-lg shrink-0">🔄</span><span class="nav-text text-sm">Sync</span>
                 @php($pendingSync = \App\Models\Invoice::whereIn('sync_status', ['pending', 'failed'])->count())
                 @if($pendingSync > 0)
-                <span class="ml-auto min-w-5 h-5 px-1 rounded-full bg-amber-500 text-black text-[11px] font-bold flex items-center justify-center">{{ $pendingSync }}</span>
+                <span class="nav-text ml-auto min-w-5 h-5 px-1 rounded-full bg-amber-500 text-black text-[11px] font-bold flex items-center justify-center">{{ $pendingSync }}</span>
                 @endif
             </a>
             <a href="{{ route('settings.edit') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('settings.*') ? 'bg-slate-800 text-white' : '' }}" title="Settings">
-                <span class="w-5 text-center text-lg shrink-0">⚙️</span><span class="text-sm">Settings</span>
+                <span class="w-5 text-center text-lg shrink-0">⚙️</span><span class="nav-text text-sm">Settings</span>
             </a>
             @endif
         </nav>
         <form method="POST" action="{{ route('logout') }}" class="px-2 mt-2">
             @csrf
             <button type="submit" class="w-full flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 text-slate-300" title="Logout">
-                <span class="w-5 text-center text-lg shrink-0">⎋</span><span class="text-sm">Logout</span>
+                <span class="w-5 text-center text-lg shrink-0">⎋</span><span class="nav-text text-sm">Logout</span>
             </button>
         </form>
     </aside>
@@ -102,12 +108,13 @@
     if (!sidebar || !toggle || !header || !main) return;
 
     function setSidebar(collapsed) {
+        sidebar.classList.toggle('collapsed', collapsed);
         sidebar.classList.toggle('w-56', !collapsed);
-        sidebar.classList.toggle('w-0', collapsed);
+        sidebar.classList.toggle('w-16', collapsed);
         header.classList.toggle('left-56', !collapsed);
-        header.classList.toggle('left-0', collapsed);
+        header.classList.toggle('left-16', collapsed);
         main.classList.toggle('ml-56', !collapsed);
-        main.classList.toggle('ml-0', collapsed);
+        main.classList.toggle('ml-16', collapsed);
         try { localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0'); } catch (e) {}
     }
 
@@ -117,7 +124,7 @@
     if (collapsed === false && window.innerWidth < 1024) collapsed = true;
     setSidebar(collapsed);
 
-    toggle.addEventListener('click', () => setSidebar(!sidebar.classList.contains('w-0')));
+    toggle.addEventListener('click', () => setSidebar(!sidebar.classList.contains('collapsed')));
 })();
 </script>
 @else
