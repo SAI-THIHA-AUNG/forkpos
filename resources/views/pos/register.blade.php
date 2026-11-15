@@ -8,12 +8,12 @@
 @endphp
 
 @section('content')
-<div class="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-4 h-[calc(100vh-5.5rem)]">
+<div class="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-4 lg:h-[calc(100vh-5.5rem)]">
 
     {{-- Left: catalog --}}
     <div class="flex flex-col gap-3 min-h-0">
         {{-- Search + barcode + view toggle --}}
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
             <input id="search" type="search" placeholder="Search items or scan barcode…" autofocus
                    class="flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none">
             <select id="group-filter" class="rounded-lg border border-slate-300 px-3 py-2 bg-white">
@@ -41,7 +41,7 @@
     </div>
 
     {{-- Right: cart --}}
-    <div class="flex flex-col bg-white rounded-xl border border-slate-200 min-h-0">
+    <div class="flex flex-col bg-white rounded-xl border border-slate-200 min-h-0 max-lg:min-h-96">
         <div class="px-4 py-3 border-b border-slate-100">
             <div class="flex items-center justify-between">
                 <h2 class="font-semibold text-slate-700">Current Sale</h2>
