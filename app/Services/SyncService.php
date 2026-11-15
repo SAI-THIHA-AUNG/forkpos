@@ -96,12 +96,12 @@ class SyncService
         if ($company) {
             $filters[] = ['company', '=', $company];
         }
-        $rows = $this->client->list('Warehouse', ['name', 'warehouse_code', 'is_group', 'company'], $filters, $limit);
+        $rows = $this->client->list('Warehouse', ['name', 'is_group', 'company'], $filters, $limit);
         $count = 0;
         foreach ($rows as $row) {
             Warehouse::updateOrCreate(['erpnext_id' => $row['name']], [
                 'name' => $row['name'],
-                'warehouse_code' => $row['warehouse_code'] ?? null,
+                'warehouse_code' => $row['name'],
                 'is_group' => (bool) ($row['is_group'] ?? false),
             ]);
             $count++;
@@ -172,10 +172,8 @@ class SyncService
         $company = $this->client->company();
         $fields = ['name', 'item_code', 'item_name', 'item_group', 'description', 'image',
             'stock_uom', 'sales_uom', 'is_stock_item', 'standard_rate', 'disabled', 'brand', 'has_variants'];
+        // Note: Item is not company-scoped in ERPNext — do not filter by company.
         $filters = [['is_sales_item', '=', 1]];
-        if ($company) {
-            $filters[] = ['company', '=', $company];
-        }
         $rows = $this->client->list('Item', $fields, $filters, $limit);
         $count = 0;
         foreach ($rows as $row) {

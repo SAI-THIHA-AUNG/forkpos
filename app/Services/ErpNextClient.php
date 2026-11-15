@@ -131,12 +131,8 @@ class ErpNextClient
                 ->timeout(30)
                 ->connectTimeout(10);
 
-            if ($query !== null) {
-                $request = $request->query($query);
-            }
-
             $response = match (strtolower($method)) {
-                'get' => $request->get($this->baseUrl().$path),
+                'get' => $request->get($this->baseUrl().$path, $query ?? []),
                 'post' => $request->post($this->baseUrl().$path, $json ?? []),
                 'put' => $request->put($this->baseUrl().$path, $json ?? []),
                 default => throw new RuntimeException("Unsupported HTTP method {$method}"),
