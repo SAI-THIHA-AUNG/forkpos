@@ -8,12 +8,13 @@ use Tests\TestCase;
 class ExampleTest extends TestCase
 {
     /**
-     * A basic test example.
+     * The root URL now requires auth (session-based). An anonymous visit
+     * should redirect to /login instead of rendering the welcome page.
      */
     public function test_the_application_returns_a_successful_response(): void
     {
         $response = $this->get('/');
 
-        $response->assertStatus(200);
+        $response->assertRedirect('/login');
     }
 }
