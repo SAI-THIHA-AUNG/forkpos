@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\ItemGroup;
 use App\Models\ItemPrice;
+use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\Tax;
 use App\Models\Territory;
@@ -267,11 +268,26 @@ class SyncService
 
     public function pullStock(int $limit): array
     {
-        $warehouse = Warehouse::whereNotNull('erpnext_id')
-            ->where('is_group', false)
-            ->first();
+        // Prefer the POS profile's warehouse (the one the register actually sells
+        // from). Fall back to any non-group warehouse that's been synced — but
+        // never to a group warehouse (e.g. "Finished Goods - M"), which holds
+        // no real Bin rows and would sync 0 stock for everything.
+        $warehouse = PosProfile::whereNotNull('warehouse_id')
+            ->with('warehouse')
+            ->get()
+            ->map(fn ($p) => $p->warehouse)
+            ->first(fn ($w) => $w && $w->erpnext_id && ! $w->is_group);
+
         if (! $warehouse) {
-            throw new RuntimeException('No warehouse synced from ERPNext yet. Sync "warehouse" first.');
+            $warehouse = Warehouse::whereNotNull('erpnext_id')
+                ->where('is_group', false)
+                ->orderByDesc('is_default')
+                ->orderBy('name')
+                ->first();
+        }
+
+        if (! $warehouse) {
+            throw new RuntimeException('No non-group warehouse synced from ERPNext yet. Sync "warehouse" first.');
         }
 
         $fields = ['item_code', 'warehouse', 'actual_qty'];
