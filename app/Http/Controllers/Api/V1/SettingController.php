@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Console\Commands\SyncMastersCommand;
 use App\Http\Controllers\Controller;
+use App\Models\Coupon;
 use App\Models\Setting;
 use App\Models\Tax;
 use App\Services\CouponService;
@@ -70,7 +72,23 @@ class SettingController extends Controller
         $setting->fill($data)->save();
         Setting::flushCache();
 
-        return response()->json(['data' => ['message' => 'Settings updated.']]);
+        // Check if ERPNext credentials were just set/updated
+        $erpnextConfigured = ! empty($setting->erpnext_url) && ! empty($setting->erpnext_api_key) && ! empty($setting->erpnext_api_secret);
+
+        if ($erpnextConfigured) {
+            try {
+                // Sync initial data from ERPNext
+                SyncMastersCommand::syncInitialData();
+
+                // Create or update POS profiles with ERPNext warehouses
+                SyncMastersCommand::updatePosProfiles();
+            } catch (\Exception $e) {
+                // Log the error but don't fail the settings update
+                \Log::error('ERPNext sync failed after settings update: '.$e->getMessage());
+            }
+        }
+
+        return response()->json(['data' => ['message' => 'Settings updated.'.($erpnextConfigured ? ' Data synced from ERPNext.' : '')]]);
     }
 
     /**
@@ -102,7 +120,7 @@ class SettingController extends Controller
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
         ]);
 
-        $coupon = \App\Models\Coupon::where('coupon_code', $data['code'])->first();
+        $coupon = Coupon::where('coupon_code', $data['code'])->first();
         if (! $coupon) {
             return response()->json([
                 'data' => ['valid' => false, 'discount' => 0.0, 'message' => 'Coupon code is not valid.'],

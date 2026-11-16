@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
+use App\Models\Item;
 use App\Models\PosOpeningShift;
+use App\Models\Warehouse;
 use App\Services\ShiftService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -69,6 +72,7 @@ class ShiftController extends Controller
      */
     public function open(Request $request)
     {
+        // Simple validation - just need a POS profile
         $data = $request->validate([
             'pos_profile_id' => ['required', 'exists:pos_profiles,id'],
             'balances' => ['nullable', 'array'],
@@ -92,6 +96,55 @@ class ShiftController extends Controller
         return response()->json([
             'data' => $shift ? $this->shiftPayload($shift) : null,
         ]);
+    }
+
+    /**
+     * GET /api/v1/shifts/pos-profile-data/{id} — get all data needed for a POS profile
+     */
+    public function posProfileData(int $id)
+    {
+        try {
+            $posProfile = PosProfile::findOrFail($id);
+
+            // Get all items
+            $items = Item::get(['id', 'item_code', 'item_name', 'selling_price']);
+
+            // Get all customers
+            $customers = Customer::get(['id', 'customer_name', 'customer_group']);
+
+            // Get all warehouses
+            $warehouses = Warehouse::where('is_group', false)->get(['id', 'name', 'erpnext_id']);
+
+            // Get all payment methods
+            $paymentMethods = $posProfile->payments->map(fn ($p) => [
+                'mode_of_payment' => $p->mode_of_payment,
+                'is_default' => $p->is_default,
+                'allow_edit_amount' => $p->allow_edit_amount,
+            ]);
+
+            return response()->json([
+                'data' => [
+                    'pos_profile' => [
+                        'id' => $posProfile->id,
+                        'name' => $posProfile->name,
+                        'company' => $posProfile->company,
+                        'currency' => $posProfile->currency,
+                        'warehouse_id' => $posProfile->warehouse_id,
+                    ],
+                    'items' => $items,
+                    'customers' => $customers,
+                    'warehouses' => $warehouses,
+                    'payment_methods' => $paymentMethods,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ],
+            ], 500);
+        }
     }
 
     /**

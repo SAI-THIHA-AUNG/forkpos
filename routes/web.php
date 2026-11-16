@@ -78,6 +78,8 @@ Route::middleware('auth')->group(function () {
             // Settings (manager-only)
             Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
             Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+            Route::post('/settings/sync-pos-profile', [SettingController::class, 'syncPosProfile'])
+                ->name('settings.sync-pos-profile');
         });
     });
 });

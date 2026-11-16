@@ -14,7 +14,7 @@ use App\Models\Tax;
 use App\Models\Territory;
 use App\Models\Uom;
 use App\Models\Warehouse;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -50,7 +50,7 @@ class SyncService
                 continue;
             }
             try {
-                $results[$entity] = $this->{'pull'.\Illuminate\Support\Str::studly($entity)}($limit);
+                $results[$entity] = $this->{'pull'.Str::studly($entity)}($limit);
             } catch (\Throwable $e) {
                 $errors[] = "{$entity}: ".$e->getMessage();
             }
@@ -202,6 +202,12 @@ class SyncService
             $count++;
         }
 
+        // Purge demo items (no ERPNext link) so the register only shows
+        // items that can actually be sold + pushed to ERPNext.
+        if ($count > 0) {
+            Item::whereNull('erpnext_id')->forceDelete();
+        }
+
         return ['pulled' => count($rows), 'upserted' => $count];
     }
 
@@ -267,6 +273,15 @@ class SyncService
                 ]
             )->restore();
             $count++;
+        }
+
+        // Purge demo customers (no ERPNext link) — keep only synced ones.
+        // Skip customers that have invoices to avoid foreign key constraint violations
+        if ($count > 0) {
+            Customer::whereNull('erpnext_id')
+                ->where('is_walk_in', false)
+                ->whereDoesntHave('invoices')
+                ->forceDelete();
         }
 
         return ['pulled' => count($rows), 'upserted' => $count];
@@ -400,7 +415,7 @@ class SyncService
             'remarks' => 'Synced from forkpos Laravel POS ('.$invoice->invoice_no.')',
         ]);
 
-        $response = $this->client->create('POS Invoice', $payload);
+        $response = $this->client->create('Sales Invoice', $payload);
 
         $name = $response['data']['name'] ?? null;
         if (! $name) {

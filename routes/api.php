@@ -71,6 +71,7 @@ Route::prefix('v1')->group(function () {
         Route::get('shifts/opening-data', [ShiftController::class, 'openingData']);
         Route::post('shifts/open', [ShiftController::class, 'open']);
         Route::get('shifts/current', [ShiftController::class, 'current']);
+        Route::get('shifts/pos-profile-data/{id}', [ShiftController::class, 'posProfileData'])->whereNumber('id');
         Route::get('shifts', [ShiftController::class, 'index']);
         Route::post('shifts/{id}/cash-movement', [ShiftController::class, 'cashMovement'])->whereNumber('id');
         Route::get('shifts/{id}/summary', [ShiftController::class, 'summary'])->whereNumber('id');
@@ -92,5 +93,6 @@ Route::prefix('v1')->group(function () {
         Route::get('sync/status', [SyncController::class, 'status']);
         Route::post('sync/masters', [SyncController::class, 'pullMasters']);
         Route::post('sync/push-invoices', [SyncController::class, 'pushInvoices']);
+        Route::post('sync/test-connection', [SyncController::class, 'testConnection']);
     });
 });

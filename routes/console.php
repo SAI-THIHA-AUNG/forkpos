@@ -1,7 +1,8 @@
 <?php
 
-use App\Console\Commands\SyncMastersCommand;
 use App\Console\Commands\PushInvoicesCommand;
+use App\Console\Commands\SyncMastersCommand;
+use App\Console\Commands\SyncPosProfilesCommand;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -24,5 +25,11 @@ Schedule::command(SyncMastersCommand::class)
 // Push pending POS invoices to ERPNext.
 Schedule::command(PushInvoicesCommand::class)
     ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();
+
+// Sync POS profiles from ERPNext.
+Schedule::command(SyncPosProfilesCommand::class)
+    ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->runInBackground();

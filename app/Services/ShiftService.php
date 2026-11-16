@@ -41,7 +41,6 @@ class ShiftService
                 'name' => $p->name,
                 'company' => $p->company,
                 'currency' => $p->currency,
-                'warehouse_id' => $p->warehouse_id,
                 'payments' => $p->payments->map(fn ($pay) => [
                     'mode_of_payment' => $pay->mode_of_payment,
                     'is_default' => $pay->is_default,

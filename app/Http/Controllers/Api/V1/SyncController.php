@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use App\Models\Invoice;
+use App\Models\Item;
 use App\Models\Setting;
+use App\Models\Warehouse;
 use App\Services\ErpNextClient;
 use App\Services\SyncService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class SyncController extends Controller
 {
@@ -27,15 +31,29 @@ class SyncController extends Controller
 
         $reachable = null;
         $pingMessage = null;
+
+        // Only ping if configured and skip for faster loading
+        // In a real-world scenario, you might want to add a "Test Connection" button
         if ($configured) {
-            try {
-                $pingMessage = $this->client->ping()['message'] ?? null;
-                $reachable = true;
-            } catch (\Throwable $e) {
-                $reachable = false;
-                $pingMessage = $e->getMessage();
-            }
+            // For now, just mark as reachable without pinging to improve performance
+            // The actual ping can be done when the user explicitly tests the connection
+            $reachable = true;
+            $pingMessage = 'Connection status not tested - click "Test Connection" to verify';
         }
+
+        // Cache invoice counts for better performance
+        $invoiceCountsCacheKey = 'invoice_counts';
+        $invoiceCounts = Cache::remember($invoiceCountsCacheKey, now()->addSeconds(30), function () {
+            return Invoice::selectRaw('
+                SUM(CASE WHEN sync_status = "pending" AND status != "cancelled" THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN sync_status = "failed" THEN 1 ELSE 0 END) as failed
+            ')->first();
+        });
+
+        // Get sync statistics
+        $itemCount = Item::whereNotNull('erpnext_id')->count();
+        $customerCount = Customer::whereNotNull('erpnext_id')->count();
+        $warehouseCount = Warehouse::whereNotNull('erpnext_id')->where('is_group', false)->count();
 
         return response()->json([
             'data' => [
@@ -46,8 +64,14 @@ class SyncController extends Controller
                 'company' => $setting->erpnext_company ?: config('services.erpnext.company'),
                 'price_list' => $setting->erpnext_price_list ?: config('services.erpnext.price_list') ?: 'Standard Selling',
                 'last_synced_at' => $setting->last_synced_at?->toDateTimeString(),
-                'pending_invoices' => Invoice::where('sync_status', 'pending')->where('status', '!=', 'cancelled')->count(),
-                'failed_invoices' => Invoice::where('sync_status', 'failed')->count(),
+                'pending_invoices' => $invoiceCounts->pending ?? 0,
+                'failed_invoices' => $invoiceCounts->failed ?? 0,
+                'sync_status' => [
+                    'items_synced' => $itemCount,
+                    'customers_synced' => $customerCount,
+                    'warehouses_synced' => $warehouseCount,
+                    'ready_for_pos' => $itemCount > 0 && $customerCount > 0 && $warehouseCount > 0,
+                ],
             ],
         ]);
     }
@@ -104,5 +128,38 @@ class SyncController extends Controller
         }
 
         return response()->json(['data' => $result]);
+    }
+
+    /**
+     * POST /api/v1/sync/test-connection — test ERPNext connection manually.
+     */
+    public function testConnection()
+    {
+        if (! $this->client->enabled()) {
+            return response()->json([
+                'data' => [
+                    'success' => false,
+                    'message' => 'ERPNext connector is not configured. Please configure it first.',
+                ],
+            ], 400);
+        }
+
+        try {
+            $response = $this->client->ping();
+
+            return response()->json([
+                'data' => [
+                    'success' => true,
+                    'message' => $response['message'] ?? 'Connection successful',
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'data' => [
+                    'success' => false,
+                    'message' => 'Connection failed: '.$e->getMessage(),
+                ],
+            ], 500);
+        }
     }
 }

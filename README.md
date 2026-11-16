@@ -40,6 +40,10 @@ php artisan key:generate
 # SQLite is the default (database/database.sqlite is created automatically)
 php artisan migrate --seed
 
+# Setup ERPNext integration
+php artisan erpnext:setup
+# Follow the prompts to enter your ERPNext API credentials
+
 php artisan serve
 # API: http://127.0.0.1:8000/api/v1/health
 ```
@@ -67,6 +71,62 @@ DB_PASSWORD=secret
 ```
 
 All migrations use portable types; the app was developed and tested on SQLite first.
+
+---
+
+## ERPNext Integration Setup
+
+ForkPOS can sync with a real ERPNext instance to get master data (items, customers, prices, etc.) and push sales back as POS invoices.
+
+### Prerequisites
+
+1. An ERPNext instance with API access enabled
+2. API user created in ERPNext with appropriate permissions
+3. Items, customers, and warehouses set up in ERPNext
+
+### Setup Steps
+
+1. **Run the setup command**:
+   ```bash
+   php artisan erpnext:setup
+   ```
+
+2. **Follow the prompts** to enter:
+   - ERPNext URL (e.g., https://erpnext.example.com)
+   - API Key and Secret from ERPNext
+   - Company name
+   - Default price list
+
+3. **Sync initial data**:
+   ```bash
+   php artisan pos:sync-masters
+   ```
+
+4. **Verify sync status**:
+   ```bash
+   curl -X GET http://localhost:8000/api/v1/sync/status
+   ```
+
+### Important Notes
+
+- **Always configure ERPNext first** before opening shifts
+- **Items must be synced** before you can sell them
+- **Customers must be synced** before you can create invoices
+- **Warehouses must be synced** for stock tracking
+- **The system will prevent opening shifts** if ERPNext is not properly configured
+
+### Manual Sync Commands
+
+```bash
+# Sync all masters
+php artisan pos:sync-masters
+
+# Sync specific entities
+php artisan pos:sync-masters --entities=item,customer,warehouse
+
+# Push invoices to ERPNext
+php artisan pos:push-invoices
+```
 
 ---
 

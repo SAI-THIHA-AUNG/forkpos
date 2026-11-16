@@ -107,5 +107,47 @@
             <button class="px-6 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium">Save settings</button>
         </div>
     </form>
+
+    {{-- ERPNext POS Profiles — pulled via App\Services\PosProfileSync --}}
+    <div class="bg-white rounded-xl border border-slate-200 p-6 mt-6">
+        <div class="flex items-center justify-between mb-3">
+            <div>
+                <h2 class="font-semibold text-slate-700">ERPNext POS Profiles</h2>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    Pulled from ERPNext. ERPNext is the source of truth for currency, warehouse
+                    &amp; payment methods &mdash; local edits of synced profiles are blocked.
+                </p>
+            </div>
+            @if ($setting->erpnextEnabled())
+            <form method="POST" action="{{ route('settings.sync-pos-profile') }}" class="inline">
+                @csrf
+                <button class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium">Sync from ERPNext</button>
+            </form>
+            @endif
+        </div>
+
+        @if ($erpProfiles->isEmpty())
+            <p class="text-sm text-slate-500">No ERPNext POS profiles synced yet. Configure the connector above, then click "Sync from ERPNext".</p>
+        @else
+            <table class="w-full text-sm">
+                <thead><tr class="text-xs text-slate-500 uppercase tracking-wide border-b border-slate-100">
+                    <th class="text-left py-2">Profile</th><th class="text-left py-2">Currency</th>
+                    <th class="text-left py-2">Warehouse</th><th class="text-left py-2">Payment methods</th>
+                    <th class="text-right py-2">Synced</th>
+                </tr></thead>
+                <tbody>
+                    @foreach ($erpProfiles as $p)
+                    <tr class="border-b border-slate-50">
+                        <td class="py-2"><p class="font-medium">{{ $p->name }}</p><p class="text-xs text-slate-400">{{ $p->company }}</p></td>
+                        <td class="py-2">{{ $p->currency ?: '—' }}</td>
+                        <td class="py-2">{{ $p->warehouse?->name ?? 'not synced' }}</td>
+                        <td class="py-2">{{ $p->payments->pluck('mode_of_payment')->join(', ') ?: '—' }}</td>
+                        <td class="py-2 text-right text-xs text-slate-500">{{ $p->synced_at?->diffForHumans() ?? '—' }}</td>
+                    </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        @endif
+    </div>
 </div>
 @endsection
