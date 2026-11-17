@@ -49,9 +49,13 @@ class InvoiceController extends Controller
 
     public function show(Invoice $invoice)
     {
-        $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier', 'posProfile', 'shift', 'returns']);
+        $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier', 'posProfile', 'shift', 'returns', 'canceller']);
 
-        return view('pos.invoices.show', ['invoice' => $invoice]);
+        return view('pos.invoices.show', [
+            'invoice' => $invoice,
+            'cancelBlocker' => $this->invoices->cancellationBlocker($invoice, request()->user()),
+            'refundDue' => $this->invoices->refundDue($invoice),
+        ]);
     }
 
     /** GET /invoices/{invoice}/return — return-against dialog. */
@@ -132,22 +136,19 @@ class InvoiceController extends Controller
         }
     }
 
+    /** POST /invoices/{invoice}/cancel — guarded by InvoiceService::cancellationBlocker(). */
     public function cancel(Request $request, Invoice $invoice)
     {
-        $user = $request->user();
-        if (! $user->isManager() && $invoice->user_id !== $user->id) {
-            abort(403, 'Only the cashier or a manager can cancel this invoice.');
-        }
-        if ($invoice->status === Invoice::STATUS_RETURNED && ! $user->isManager()) {
-            abort(403, 'Only managers can cancel returned invoices.');
-        }
-
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:500'],
+            'reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $this->invoices->cancel($invoice, $data['reason'] ?? '');
+        try {
+            $this->invoices->cancel($invoice, $request->user(), $data['reason']);
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors());
+        }
 
-        return back()->with('success', "Invoice {$invoice->invoice_no} cancelled. Stock restored.");
+        return back()->with('success', "Invoice {$invoice->invoice_no} cancelled. Stock is back and the payments are voided.");
     }
 }

@@ -4,6 +4,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [0.6.0] — 2026-11-17
+
+Saved register drafts and a guarded, audited sale-cancellation workflow.
+
+### Added
+- **Drafts**: a register cart can be saved as a draft (`pos_drafts` table +
+  `PosDraft` model + `DraftController` + `/pos/drafts` routes and a nav entry).
+  A draft moves no stock, takes no payment and has no invoice number; it stores
+  the cart lines, customer, coupon, whole-sale discount and credit terms, and is
+  shared by every cashier on the POS profile. Resuming re-prices lines to today's
+  list (hand-set prices only survive when the profile allows price changes) and
+  charging a resumed draft removes it.
+- **Sale cancellation audit**: `cancelled_at`, `cancelled_by` and `cancel_reason`
+  on invoices, with a `canceller()` relation. A cancelled sale is never deleted.
+- `InvoiceService::cancellationBlocker()` / `refundDue()` — a single guard shared
+  by the API, the web controller and the invoice page.
+
+### Changed
+- `InvoiceService::cancel()` now requires a reason and a user, locks the row,
+  restores stock, voids payments (they leave shift/daily totals), reverses coupon
+  `used_count` and loyalty points, zeroes the balance, and records who/when/why.
+- Cancelling a sale from an already-closed shift books the refund as a cash-out
+  (`PosCashMovement`) in the manager's current open shift.
+- Cancel is refused when the sale already has (non-cancelled) returns, is already
+  cancelled, is a return itself, or has been synced to ERPNext.
+- Invoice page shows a cancellation card (with the refund amount) or the reason
+  cancel is unavailable; receipts show credit status.
+
+### Fixed
+- `pos/invoices/show.blade.php`: a `@if` glued to the preceding word (`totals@if`)
+  that Blade did not compile — now spaced correctly.
+
 ## [0.5.0] — 2026-11-17
 
 Credit sales: a customer takes goods now and pays later.

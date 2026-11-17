@@ -3,6 +3,7 @@
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\CustomerController;
 use App\Http\Controllers\Web\DashboardController;
+use App\Http\Controllers\Web\DraftController;
 use App\Http\Controllers\Web\InvoiceController;
 use App\Http\Controllers\Web\PosController;
 use App\Http\Controllers\Web\ProfileController;
@@ -71,6 +72,9 @@ Route::middleware('auth')->group(function () {
             Route::post('/pos/preparing/retry', [PosController::class, 'preparingRetry'])->name('pos.preparing.retry');
             Route::post('/pos/invoice', [PosController::class, 'checkout'])->name('pos.checkout');
             Route::get('/pos/receipt/{invoice}', [PosController::class, 'receipt'])->name('pos.receipt');
+            Route::get('/pos/drafts', [DraftController::class, 'index'])->name('drafts.index');
+            Route::post('/pos/drafts', [DraftController::class, 'store'])->name('drafts.store');
+            Route::delete('/pos/drafts/{draft}', [DraftController::class, 'destroy'])->name('drafts.destroy');
             Route::get('/pos/items', [PosController::class, 'items']);
             Route::get('/pos/barcode/{code}', [PosController::class, 'itemByBarcode']);
 

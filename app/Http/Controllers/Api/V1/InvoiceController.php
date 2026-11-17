@@ -130,25 +130,20 @@ class InvoiceController extends Controller
     }
 
     /**
-     * POST /api/v1/invoices/{id}/cancel — puts stock back and marks cancelled.
+     * POST /api/v1/invoices/{id}/cancel — keeps the row, restores stock, voids the payments.
+     * A reason is required; the guard (owner / manager, closed shift, returns, ERPNext sync) answers 422.
      */
     public function cancel(Request $request, int $id)
     {
         $invoice = Invoice::findOrFail($id);
-        if (! $request->user()->isManager() && $invoice->user_id !== $request->user()->id) {
-            abort(403, 'Only the cashier or a manager can cancel this invoice.');
-        }
-        if ($invoice->status === Invoice::STATUS_RETURNED && ! $request->user()->isManager()) {
-            abort(403, 'Only managers can cancel returned invoices.');
-        }
 
         $data = $request->validate([
-            'reason' => ['nullable', 'string', 'max:500'],
+            'reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $invoice = $this->invoices->cancel($invoice, $data['reason'] ?? '');
+        $invoice = $this->invoices->cancel($invoice, $request->user(), $data['reason']);
 
-        return response()->json(['data' => $this->payload($invoice)]);
+        return response()->json(['data' => $this->payload($invoice->load('canceller'))]);
     }
 
     protected function payload(Invoice $invoice, bool $summary = false): array
@@ -178,6 +173,9 @@ class InvoiceController extends Controller
             'paid_amount' => (float) $invoice->paid_amount,
             'change_amount' => (float) $invoice->change_amount,
             'outstanding_amount' => (float) $invoice->outstanding_amount,
+            'cancelled_at' => $invoice->cancelled_at?->toDateTimeString(),
+            'cancelled_by' => $invoice->canceller?->name,
+            'cancel_reason' => $invoice->cancel_reason,
             'is_credit' => (bool) $invoice->is_credit,
             'due_date' => $invoice->due_date?->toDateString(),
             'credit_days' => $invoice->credit_days,

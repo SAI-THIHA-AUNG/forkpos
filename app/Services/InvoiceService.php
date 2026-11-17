@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Item;
+use App\Models\PosCashMovement;
 use App\Models\PosOpeningShift;
 use App\Models\PosProfile;
 use App\Models\Setting;
@@ -582,20 +583,82 @@ class InvoiceService
         return $rows;
     }
 
-    public function cancel(Invoice $invoice, string $reason = ''): Invoice
+    /**
+     * Why this sale cannot be cancelled by this user, or null when it can.
+     *
+     * The single guard behind every cancel entry point (web, API) and behind
+     * the Cancel button, so the screens and the rules never disagree.
+     */
+    public function cancellationBlocker(Invoice $invoice, User $user): ?string
     {
         if ($invoice->status === Invoice::STATUS_CANCELLED) {
-            return $invoice;
+            return 'This invoice is already cancelled.';
+        }
+        if ($invoice->is_return) {
+            return 'A return cannot be cancelled. Make a new sale if it was recorded by mistake.';
+        }
+        if (! $user->isManager() && $invoice->user_id !== $user->id) {
+            return 'Only the cashier who made the sale, or a manager, can cancel it.';
+        }
+        if ($invoice->returns()->where('status', '!=', Invoice::STATUS_CANCELLED)->exists()) {
+            return 'This sale already has returns. Cancel is not possible; the returns stand.';
+        }
+        if ($invoice->erpnext_id || $invoice->sync_status === 'synced') {
+            return 'This sale is already in ERPNext. Use Return to reverse it instead of cancelling.';
         }
 
-        return DB::transaction(function () use ($invoice, $reason) {
-            // Put stock back for a cancelled sale (or take it back for a cancelled return).
+        $shift = $invoice->shift_id ? PosOpeningShift::find($invoice->shift_id) : null;
+        if ($shift && ! $shift->isOpen()) {
+            if (! $user->isManager()) {
+                return 'This sale belongs to a closed shift. Only a manager can cancel it.';
+            }
+            if ($this->refundDue($invoice) > 0.009 && ! $this->openShiftFor($user)) {
+                return 'Open a shift first, so the refund to the customer can be recorded in it.';
+            }
+        }
+
+        return null;
+    }
+
+    /** Money actually kept from the customer: what they paid minus the change given back. */
+    public function refundDue(Invoice $invoice): float
+    {
+        return max(0.0, round((float) $invoice->paid_amount - (float) $invoice->change_amount, 6));
+    }
+
+    /**
+     * Cancel a sale. The row is kept (status "cancelled" plus who / when / why):
+     *  - stock comes back,
+     *  - the payments are voided: cancelled sales drop out of shift and daily totals,
+     *    and when the sale's shift is already closed the refund is booked as a
+     *    cash-out in the manager's current shift,
+     *  - coupon use and loyalty points are given back,
+     *  - nothing is deleted.
+     *
+     * @throws ValidationException when the guard refuses or the reason is empty
+     */
+    public function cancel(Invoice $invoice, User $user, string $reason): Invoice
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw ValidationException::withMessages(['reason' => ['Say why the sale is being cancelled.']]);
+        }
+
+        return DB::transaction(function () use ($invoice, $user, $reason) {
+            // Lock + re-read so two clicks (or two terminals) cannot cancel twice.
+            $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            if ($message = $this->cancellationBlocker($invoice, $user)) {
+                throw ValidationException::withMessages(['cancel' => [$message]]);
+            }
+
+            $invoice->load(['items.item', 'payments']);
+
             foreach ($invoice->items as $line) {
                 if ($line->item && $line->item->is_stock_item) {
                     $this->stock->postMovement(
                         item: $line->item,
                         warehouseId: $line->warehouse_id,
-                        qtyChange: ($line->qty * $line->conversion_factor), // inverse of sale
+                        qtyChange: ($line->qty * $line->conversion_factor), // inverse of the sale
                         refType: 'adjustment',
                         refId: (string) $invoice->id,
                         allowNegative: false,
@@ -603,12 +666,73 @@ class InvoiceService
                 }
             }
 
-            $invoice->status = Invoice::STATUS_CANCELLED;
-            $invoice->remarks = trim(($invoice->remarks ? $invoice->remarks."\n" : '').'CANCELLED: '.$reason);
-            $invoice->save();
+            if ($invoice->coupon_code) {
+                Coupon::where('coupon_code', $invoice->coupon_code)->where('used_count', '>', 0)->decrement('used_count');
+            }
+            $customer = $invoice->customer;
+            if ($customer && ! $customer->is_walk_in) {
+                if ($invoice->loyalty_points_spent > 0) {
+                    $customer->increment('loyalty_points', $invoice->loyalty_points_spent);
+                }
+                if ($invoice->loyalty_points_earned > 0) {
+                    $customer->decrement('loyalty_points', min((int) $customer->loyalty_points, $invoice->loyalty_points_earned));
+                }
+            }
+
+            $this->bookRefundInCurrentShift($invoice, $user, $reason);
+
+            $invoice->forceFill([
+                'status' => Invoice::STATUS_CANCELLED,
+                'outstanding_amount' => 0, // nothing is owed on a cancelled sale
+                'cancelled_at' => now(),
+                'cancelled_by' => $user->id,
+                'cancel_reason' => mb_substr($reason, 0, 500),
+            ])->save();
 
             return $invoice->fresh(['items', 'payments', 'taxes']);
         });
+    }
+
+    /**
+     * A sale from an already-closed shift was counted in that shift's cash.
+     * Handing the money back now is a cash-out of the manager's open shift.
+     */
+    protected function bookRefundInCurrentShift(Invoice $invoice, User $user, string $reason): void
+    {
+        $shift = $invoice->shift_id ? PosOpeningShift::find($invoice->shift_id) : null;
+        if (! $shift || $shift->isOpen()) {
+            return; // still in the live shift: the voided payments simply leave its totals
+        }
+        $current = $this->openShiftFor($user);
+        if (! $current) {
+            return; // the guard already refuses this case when money is involved
+        }
+
+        $changeLeft = (float) $invoice->change_amount;
+        foreach ($invoice->payments as $payment) {
+            $net = (float) $payment->amount;
+            $takeOff = min($changeLeft, $net);
+            $net -= $takeOff;
+            $changeLeft -= $takeOff;
+            if ($net <= 0.009) {
+                continue;
+            }
+            PosCashMovement::create([
+                'shift_id' => $current->id,
+                'user_id' => $user->id,
+                'type' => PosCashMovement::TYPE_OUT,
+                'mode_of_payment' => $payment->mode_of_payment,
+                'amount' => round($net, 6),
+                'reason' => "Refund: cancelled {$invoice->invoice_no} — {$reason}",
+            ]);
+        }
+    }
+
+    protected function openShiftFor(User $user): ?PosOpeningShift
+    {
+        return PosOpeningShift::where('user_id', $user->id)
+            ->where('status', PosOpeningShift::STATUS_OPEN)
+            ->first();
     }
 
     protected function resolveCustomer(array $data): Customer

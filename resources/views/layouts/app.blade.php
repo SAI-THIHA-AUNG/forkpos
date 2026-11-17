@@ -50,6 +50,9 @@
             <a href="{{ route('pos.register') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('pos.register') ? 'bg-slate-800 text-white' : '' }}" title="Register">
                 <span class="w-5 text-center text-lg shrink-0">🛒</span><span class="nav-text text-sm">Register</span>
             </a>
+            <a href="{{ route('drafts.index') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('drafts.*') ? 'bg-slate-800 text-white' : '' }}" title="Drafts">
+                <span class="w-5 text-center text-lg shrink-0">📝</span><span class="nav-text text-sm">Drafts</span>
+            </a>
             <a href="{{ route('shifts.current') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('shifts.*') ? 'bg-slate-800 text-white' : '' }}" title="Shifts">
                 <span class="w-5 text-center text-lg shrink-0">🕐</span><span class="nav-text text-sm">Shifts</span>
             </a>

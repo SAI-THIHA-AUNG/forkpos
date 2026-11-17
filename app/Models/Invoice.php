@@ -31,6 +31,7 @@ class Invoice extends Model
         'currency', 'price_list', 'coupon_code', 'coupon_discount',
         'loyalty_points_earned', 'loyalty_points_spent', 'offline_id', 'remarks',
         'erpnext_id', 'sync_status',
+        'cancelled_at', 'cancelled_by', 'cancel_reason',
     ];
 
     protected function casts(): array
@@ -39,6 +40,7 @@ class Invoice extends Model
             'posting_datetime' => 'datetime',
             'posting_date' => 'date',
             'due_date' => 'date',
+            'cancelled_at' => 'datetime',
             'is_credit' => 'boolean',
             'credit_days' => 'integer',
             'is_return' => 'boolean',
@@ -77,6 +79,11 @@ class Invoice extends Model
     public function cashier()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function canceller()
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function items()

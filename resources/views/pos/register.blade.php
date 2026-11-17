@@ -45,8 +45,14 @@
         <div class="px-4 py-3 border-b border-slate-100">
             <div class="flex items-center justify-between">
                 <h2 class="font-semibold text-slate-700">Current Sale</h2>
-                <button id="clear-cart" class="text-xs text-slate-400 hover:text-red-600">Clear</button>
+                <div class="flex items-center gap-3">
+                    <a href="{{ route('drafts.index') }}" class="text-xs text-brand-600 hover:underline">Drafts{{ $draftCount ? " ({$draftCount})" : '' }}</a>
+                    <button id="clear-cart" class="text-xs text-slate-400 hover:text-red-600">Clear</button>
+                </div>
             </div>
+            @if ($draftCart)
+            <p class="text-xs text-amber-600 mt-0.5">Resumed draft “{{ $draftCart['label'] }}” — charging it removes the draft.</p>
+            @endif
             @if ($currentShift)
             <p class="text-xs text-slate-500 mt-0.5">Shift {{ $currentShift->shift_no }} · started {{ $currentShift->started_at?->format('H:i') }}</p>
             @else
@@ -114,8 +120,9 @@
             <div class="flex justify-between text-sm mt-3"><span>Change / outstanding</span><span id="change" class="font-medium">{{ $currency }}0</span></div>
         </div>
 
-        <div class="border-t border-slate-100 p-3">
-            <button id="checkout" class="w-full rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 disabled:opacity-50" disabled>Charge</button>
+        <div class="border-t border-slate-100 p-3 flex gap-2">
+            <button id="save-draft" type="button" class="rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium px-4 py-2.5 disabled:opacity-50" disabled title="Keep this cart for later — nothing is charged and stock does not change">Save draft</button>
+            <button id="checkout" class="flex-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 disabled:opacity-50" disabled>Charge</button>
         </div>
     </div>
 </div>
@@ -162,6 +169,8 @@ const DEFAULT_TAX = @json($defaultTaxPayload);
 const PAYMENT_MODES = @json($paymentModesPayload);
 const SEED_ITEMS = @json($seedItemsPayload);
 const GROUPS = @json($groupsPayload);
+const DRAFT = @json($draftCart);
+let currentDraftId = DRAFT ? DRAFT.id : null;
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 // ERPNext gives the precision; ForkPOS hides forced decimals in the UI:
@@ -454,6 +463,7 @@ function recalcTotals() {
     document.getElementById('discount').textContent = (lineDisc > 0 ? '−' : '') + CURRENCY + fmtAmount(lineDisc);
     const addlEl = document.getElementById('addl-amount');
     if (addlEl) addlEl.textContent = (addl > 0 ? '−' : '') + CURRENCY + fmtAmount(addl);
+    document.getElementById('save-draft').disabled = !cart.length;
     document.getElementById('tax').textContent = CURRENCY + fmtAmount(tax);
     document.getElementById('grand').textContent = CURRENCY + fmtAmount(GRAND);
     autofillSinglePayment();
@@ -618,6 +628,70 @@ cs.addEventListener('input', () => {
     }, 250);
 });
 document.addEventListener('click', e => { if (!csResults.contains(e.target) && e.target !== cs) csResults.classList.add('hidden'); });
+
+// ---- Drafts ------------------------------------------------------------
+// Resume: rebuild the cart from the saved draft (prices/stock were refreshed by the server).
+(function restoreDraft() {
+    if (!DRAFT) return;
+    DRAFT.lines.forEach(l => {
+        if (!SEED_ITEMS.some(i => i.id === l.item.id)) SEED_ITEMS.push(l.item);
+        cart.push({
+            item_id: l.item.id, item_code: l.item.item_code, item_name: l.item.item_name, uom: l.item.uom,
+            qty: l.qty, price_list_rate: l.item.rate, rate: l.rate, allow_discount: !!l.item.allow_discount,
+            discount_type: l.discount_type, discount_value: l.discount_value,
+            tax_id: DEFAULT_TAX?.id ?? null, stock_qty: l.item.stock_qty,
+        });
+    });
+    if (DRAFT.customer) { cs.value = DRAFT.customer.name; cs.dataset.customerId = DRAFT.customer.id; }
+    if (DRAFT.coupon_code) document.getElementById('coupon').value = DRAFT.coupon_code;
+    if (DRAFT.additional_discount_value > 0 && PROFILE.allow_discount_change) {
+        addlDiscount = { type: DRAFT.additional_discount_type, value: DRAFT.additional_discount_value };
+        document.getElementById('addl-type').value = addlDiscount.type;
+        document.getElementById('addl-value').value = addlDiscount.value;
+    }
+    if (DRAFT.is_credit) {
+        // Fixed terms count from today; a saved date that has already passed must be picked again.
+        const keepDate = DRAFT.due_date && DRAFT.due_date >= isoDate(new Date());
+        credit = DRAFT.credit_days
+            ? { on: true, days: DRAFT.credit_days, date: '' }
+            : { on: true, days: 'custom', date: keepDate ? DRAFT.due_date : '' };
+        document.getElementById('credit-toggle').checked = true;
+        document.getElementById('credit-date').value = credit.date;
+        payments = [defaultPaymentRow()];
+        renderCredit();
+        renderPayments();
+    }
+    renderCart();
+    if (DRAFT.dropped > 0) flash(DRAFT.dropped + ' item(s) from the draft are no longer for sale and were left out.', 'error');
+})();
+
+document.getElementById('save-draft').addEventListener('click', () => {
+    if (!cart.length) return;
+    const payload = {
+        draft_id: currentDraftId,
+        customer_id: cs.dataset.customerId || null,
+        total: GRAND,
+        coupon_code: document.getElementById('coupon').value.trim() || null,
+        additional_discount_type: addlDiscount.value > 0 ? addlDiscount.type : null,
+        additional_discount_value: addlDiscount.value > 0 ? addlDiscount.value : null,
+        is_credit: credit.on,
+        credit_days: credit.on && credit.days !== 'custom' ? credit.days : null,
+        due_date: credit.on && credit.days === 'custom' && credit.date ? credit.date : null,
+        items: cart.map(c => ({
+            item_id: c.item_id, qty: c.qty, rate: c.rate,
+            discount_type: c.discount_type, discount_value: c.discount_value || 0,
+        })),
+    };
+    fetch('{{ route('drafts.store') }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
+    }).then(async r => {
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) { flash(res.errors ? Object.values(res.errors).flat().join(' ') : (res.message || ('HTTP ' + r.status)), 'error'); return; }
+        window.location.href = res.data.redirect;
+    }).catch(err => flash('Network error: ' + err.message, 'error'));
+});
 
 // ---- Checkout ----------------------------------------------------------
 document.getElementById('checkout').addEventListener('click', () => {

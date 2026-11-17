@@ -14,7 +14,7 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 
 ---
 
-## What is implemented (v0.5.0)
+## What is implemented (v0.6.0)
 
 | Domain | Feature |
 | --- | --- |
@@ -27,6 +27,8 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 | **Invoices** | One-call create+complete, **tax-inclusive and tax-exclusive** math, line discounts (%, amount), invoice-level (total) discount, invoice coupons, loyalty points, cancel with stock restore, **offline idempotency** (`offline_id` UUID), printable receipt |
 | **Returns** | Return against a completed sale, line by line, tracking how much of each item is still returnable. Refunds use the price actually paid (after line and total discounts), go back to the current shift's cash drawer and restore stock |
 | **Credit sales** | A customer takes goods now and pays later: 7 / 14 / 30-day terms or a picked due date, an optional down payment (cash or digital with a reference no.), overdue highlighting, and a credit/overdue filter on the invoice list |
+| **Drafts** | Hold a register cart as a **draft** (no stock movement, no payment, no invoice number) and resume/charge it later. Drafts are shared across the POS profile's cashiers and re-priced to today's list on resume |
+| **Cancelling sales** | Cancel a sale with an **audit trail** (who / when / why), stock restored, payments voided, coupon/loyalty effects reversed. Guarded by one rule set: owner-or-manager, no open returns, not yet synced to ERPNext, and closed-shift refunds booked as a cash-out in the current shift |
 | **Catalog** | Items with barcodes, price lists, UOM conversions, item groups, warehouses, live stock quantities |
 | **Customers** | Search, quick-create from POS, walk-in customer, loyalty balance, customer-specific prices |
 | **Stock** | Balance per item/warehouse, ledger entries, negative-stock policy |
@@ -312,7 +314,7 @@ POST /shifts/{id}/close         → {payments:[{mode_of_payment, counted_amount}
 | POST | `/invoices` | Create + complete a sale or return (total discount + line discounts; returns priced from the original sale) |
 | GET | `/invoices`, `/invoices/{id}` | History & detail (filters: `status`, `date_from`, `date_to`, `shift_id`, `customer_id`, `q`) |
 | GET | `/invoices/offline-check?ids=a,b,c` | Which offline UUIDs already exist (client-side dedupe) |
-| POST | `/invoices/{id}/cancel` | Cancel + stock restore (cashier owner or manager) |
+| POST | `/invoices/{id}/cancel` | Cancel + stock restore + voided payments (owner / manager / cashier-owner, with a required reason) |
 | GET | `/coupons/check?code=X&amount=Y` | Validate a coupon before applying |
 | GET | `/reports/dashboard`, `/reports/daily-summary?date=` | Sales analytics |
 | GET | `/sync/status` | ERPNext connector health + pending push count |
@@ -407,15 +409,16 @@ php artisan test          # PHPUnit feature tests (in-memory SQLite)
 vendor/bin/pint --dirty   # code style
 ```
 
-The feature suite (**79 tests / 387 assertions**) covers login (password + PIN),
+The feature suite (**97 tests / 508 assertions**) covers login (password + PIN),
 first-run setup and password enforcement, profile visibility, profile-scoped
 catalog sync and delta cursors, shift open/close reconciliation, invoice math,
 rate-change and discount permissions (percent, amount, line and whole-sale, item and
 profile caps), the return workflow (remaining quantities, paid-price refunds, stock
-restore), credit sales (terms, due dates, down payments, overdue and filters), the
-daily report (line detail, inventory movement, Excel export), offline idempotency,
-insufficient stock, cashier permission limits, the ERPNext push payload and the pull
-summary.
+restore), credit sales (terms, due dates, down payments, overdue and filters), saved
+drafts (resume, re-price, scoped delete) and sale cancellation (audit trail, guard
+rules, closed-shift refunds), the daily report (line detail, inventory movement,
+Excel export), offline idempotency, insufficient stock, cashier permission limits,
+the ERPNext push payload and the pull summary.
 
 ## Project layout
 
@@ -427,12 +430,12 @@ app/
   Http/Controllers/Web/      Blade console controllers (11)
   Http/Middleware/           profile selection + setup-complete guards
   Jobs/                      queued profile catalog sync
-  Models/                    30 Eloquent models (POS domain)
+  Models/                    31 Eloquent models (POS domain)
   Services/                  InvoiceService, ShiftService, StockService, CouponService,
                              ErpNextClient, SyncService, PosProfileSync, ProfileCatalogSync,
                              ReportService (reports + workbook)
   Support/                   PosProfileConfig (ERPNext → local field mapping), XlsxWriter
-database/migrations/         37 migrations (SQLite-first, MySQL-compatible)
+database/migrations/         39 migrations (SQLite-first, MySQL-compatible)
 database/seeders/            DatabaseSeeder (bootstrap admin) + DemoSeeder (opt-in demo data)
 routes/api.php               /api/v1 route map
 routes/web.php               Blade console route map
@@ -471,6 +474,9 @@ Work in versions so upstream iterations stay reviewable:
   down payments (cash or digital with a reference no.), overdue highlighting, a
   credit/overdue filter on the invoice list, and ERPNext push as a regular Sales
   Invoice (with `due_date`) when nothing is paid up front.
+- **v0.6.0** — saved register drafts (hold, resume, re-price, profile-scoped delete)
+  and a guarded sale-cancellation workflow with an audit trail (who / when / why),
+  voided payments, reversed coupon/loyalty effects and closed-shift refund booking.
 
 See `CHANGELOG.md`.
 

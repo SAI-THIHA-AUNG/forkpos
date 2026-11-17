@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Item;
 use App\Models\ItemBarcode;
 use App\Models\ItemGroup;
+use App\Models\PosDraft;
 use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\Tax;
@@ -81,7 +82,16 @@ class PosController extends Controller
             )
             ->get(['id', 'name', 'rate', 'included_in_price']);
 
+        $draft = $request->query('draft')
+            ? PosDraft::with('customer')->where('pos_profile_id', $profile->id)->find($request->query('draft'))
+            : null;
+        if ($request->query('draft') && ! $draft) {
+            return redirect()->route('pos.register')->with('warning', 'That draft no longer exists.');
+        }
+
         return view('pos.register', [
+            'draftCart' => $draft ? $this->draftCart($draft, $profile) : null,
+            'draftCount' => PosDraft::where('pos_profile_id', $profile->id)->count(),
             'profile' => $profile,
             'setting' => $setting,
             'groups' => $groups,
@@ -90,6 +100,65 @@ class PosController extends Controller
             'defaultTaxes' => $defaultTaxes,
             'currentShift' => $currentShift,
         ]);
+    }
+
+    /**
+     * Turn a saved draft back into register state. Item names, units and
+     * stock come from today's catalog and prices are today's price list, so a
+     * stale draft can never charge an old price (a hand-set price is kept only
+     * when the profile allows price changes). Items that are no longer
+     * sellable are dropped.
+     *
+     * @return array<string, mixed>
+     */
+    protected function draftCart(PosDraft $draft, PosProfile $profile): array
+    {
+        $payload = $draft->payload;
+        $saved = collect($payload['items'] ?? []);
+        $items = Item::with(['group', 'stockUom', 'salesUom'])
+            ->available()
+            ->whereIn('id', $saved->pluck('item_id'))
+            ->get()
+            ->keyBy('id');
+        $stockMap = $this->stock->balancesFor($items->keys()->all(), $profile->warehouse_id);
+
+        $lines = $saved->filter(fn ($l) => $items->has($l['item_id']))->map(function ($l) use ($items, $stockMap, $profile) {
+            $item = $items[$l['item_id']];
+            $listRate = (float) $item->effectiveRate($profile->selling_price_list);
+
+            return [
+                'item' => [
+                    'id' => $item->id,
+                    'item_code' => $item->item_code,
+                    'item_name' => $item->item_name,
+                    'item_group_id' => $item->item_group_id,
+                    'item_group' => $item->group?->name,
+                    'uom' => $item->salesUom?->uom_name ?? $item->stockUom?->uom_name ?? 'Unit',
+                    'rate' => $listRate,
+                    'allow_discount' => (bool) $item->allow_discount,
+                    'is_stock_item' => (bool) $item->is_stock_item,
+                    'stock_qty' => (float) ($stockMap[$item->id] ?? 0),
+                ],
+                'qty' => (float) $l['qty'],
+                'rate' => ($profile->allow_rate_change && isset($l['rate'])) ? (float) $l['rate'] : $listRate,
+                'discount_type' => $l['discount_type'] ?? 'percentage',
+                'discount_value' => (float) ($l['discount_value'] ?? 0),
+            ];
+        })->values()->all();
+
+        return [
+            'id' => $draft->id,
+            'label' => $draft->label,
+            'customer' => $draft->customer ? ['id' => $draft->customer->id, 'name' => $draft->customer->customer_name] : null,
+            'coupon_code' => $payload['coupon_code'] ?? null,
+            'additional_discount_type' => $payload['additional_discount_type'] ?? 'percentage',
+            'additional_discount_value' => (float) ($payload['additional_discount_value'] ?? 0),
+            'is_credit' => (bool) ($payload['is_credit'] ?? false),
+            'credit_days' => $payload['credit_days'] ?? null,
+            'due_date' => $payload['due_date'] ?? null,
+            'lines' => $lines,
+            'dropped' => $saved->count() - count($lines),
+        ];
     }
 
     /** GET /pos/preparing — progress screen while the profile's catalog is pulled. */
@@ -199,6 +268,7 @@ class PosController extends Controller
             'additional_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'loyalty_points' => ['nullable', 'integer', 'min:0'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'draft_id' => ['nullable', 'integer'],
             'is_credit' => ['nullable', 'boolean'],
             'credit_days' => ['nullable', 'integer', Rule::in(Invoice::CREDIT_TERM_DAYS)],
             'due_date' => ['nullable', 'date'],
@@ -225,6 +295,11 @@ class PosController extends Controller
         try {
             $result = $this->invoices->create($data, $request->user());
             $invoice = $result['invoice'];
+
+            // A charged draft is finished: remove it so it cannot be charged twice.
+            if (! empty($data['draft_id'])) {
+                PosDraft::where('pos_profile_id', $profile->id)->whereKey($data['draft_id'])->delete();
+            }
 
             return response()->json([
                 'data' => [

@@ -105,17 +105,33 @@
     </div>
     @endif
 
-    @if ($invoice->status !== 'cancelled')
+    @if ($invoice->status === 'cancelled')
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-4 text-sm text-slate-600 space-y-1">
+        <p class="font-semibold text-slate-700">Cancelled{{ $invoice->cancelled_at ? ' on '.$invoice->cancelled_at->format('M j, Y H:i') : '' }}{{ $invoice->canceller ? ' by '.$invoice->canceller->name : '' }}</p>
+        @if ($invoice->cancel_reason)<p>Reason: {{ $invoice->cancel_reason }}</p>@endif
+        <p>Stock was put back. Payments are voided and no longer count in shift or daily totals @if ($refundDue > 0.009) — refund to the customer: <span class="font-semibold">{{ $currency }}{{ \App\Support\Money::format($refundDue, $precision) }}</span>@endif.</p>
+    </div>
+    @elseif ($cancelBlocker)
+    <div class="bg-amber-50 rounded-xl border border-amber-200 p-4 text-sm text-amber-800">
+        <p class="font-semibold">Cancel not available</p>
+        <p>{{ $cancelBlocker }}</p>
+    </div>
+    @else
     <div class="bg-white rounded-xl border border-slate-200 p-4">
-        <form method="POST" action="{{ route('invoices.cancel', $invoice) }}" onsubmit="return confirm('Cancel this invoice? Stock will be restored.')">
+        <form method="POST" action="{{ route('invoices.cancel', $invoice) }}" onsubmit="return confirm('Cancel this sale? Stock goes back and the payments are voided.')">
             @csrf
             <div class="flex items-end gap-2">
                 <div class="flex-1">
-                    <label class="block text-xs text-slate-500 mb-1">Cancel reason (optional)</label>
-                    <input type="text" name="reason" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+                    <label class="block text-xs text-slate-500 mb-1">Why is this sale cancelled? (required)</label>
+                    <input type="text" name="reason" required maxlength="500" value="{{ old('reason') }}" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
+                    @error('reason')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
+                    @error('cancel')<p class="text-xs text-red-600 mt-1">{{ $message }}</p>@enderror
                 </div>
-                <button class="rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-3 py-1.5">Cancel invoice</button>
+                <button class="rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-3 py-1.5">Cancel sale</button>
             </div>
+            @if ($refundDue > 0.009)
+            <p class="text-xs text-slate-500 mt-2">The customer paid {{ $currency }}{{ \App\Support\Money::format($refundDue, $precision) }}; give that back when you cancel.</p>
+            @endif
         </form>
     </div>
     @endif
