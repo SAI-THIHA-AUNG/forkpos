@@ -46,7 +46,7 @@ php artisan migrate --seed
 
 # Serve the app and drain the queue (catalog syncs are queued jobs):
 php artisan serve
-php artisan queue:work        # or: composer run dev  (server + queue + vite)
+php artisan queue:work        # or: composer run dev  (server + queue in one terminal)
 ```
 
 In production a single cron line is enough — the scheduler drains the queue itself:

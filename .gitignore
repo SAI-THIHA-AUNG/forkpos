@@ -17,6 +17,7 @@
 /.mcp.json
 /boost.json
 /opencode.json
+/CLAUDE.md
 /auth.json
 /node_modules
 /public/build
@@ -32,3 +33,10 @@ Homestead.yaml
 Thumbs.db
 /database/*.sqlite
 /database/database.sqlite
+
+# Local artefacts that must never be committed
+*.patch
+*.orig
+*.rej
+*.bak
+
