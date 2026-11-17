@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Warehouse;
+use App\Services\ReportService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -17,7 +20,7 @@ class DashboardController extends Controller
 
         $sales = Invoice::whereDate('posting_date', $today)
             ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->selectRaw("
+            ->selectRaw('
                 COUNT(*) as invoice_count,
                 COALESCE(SUM(CASE WHEN is_return = 0 THEN grand_total ELSE 0 END), 0) as gross_sales,
                 COALESCE(SUM(CASE WHEN is_return = 1 THEN grand_total ELSE 0 END), 0) as returns_total,
@@ -25,7 +28,7 @@ class DashboardController extends Controller
                 COALESCE(SUM(tax_total), 0) as tax_total,
                 COALESCE(SUM(grand_total), 0) as grand_total,
                 COALESCE(SUM(discount_total), 0) as discount_total
-            ")->first();
+            ')->first();
 
         $paymentBreakdown = DB::table('invoice_payments')
             ->join('invoices', 'invoices.id', '=', 'invoice_payments.invoice_id')
@@ -52,21 +55,93 @@ class DashboardController extends Controller
         ]);
     }
 
-    /** GET /dashboard/daily?date=YYYY-MM-DD */
-    public function daily(Request $request)
+    /** GET /dashboard/daily?from=YYYY-MM-DD&to=YYYY-MM-DD&tab=invoices|lines|stock */
+    public function daily(Request $request, ReportService $reports)
     {
-        $request->validate(['date' => ['nullable', 'date']]);
-        $date = $request->query('date', now()->toDateString());
+        [$from, $to] = $this->range($request);
+        $isManager = $request->user()->isManager();
+        $profile = $request->attributes->get('posProfile');
 
-        $invoices = Invoice::whereDate('posting_date', $date)
-            ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->with(['customer:id,customer_name', 'payments'])
-            ->orderBy('id')
-            ->paginate(50);
+        $tab = $request->query('tab', 'invoices');
+        if (! in_array($tab, ['invoices', 'lines', 'stock'], true) || ($tab === 'stock' && ! $isManager)) {
+            $tab = 'invoices';
+        }
 
-        return view('pos.dashboard.daily', [
-            'date' => $date,
-            'invoices' => $invoices,
+        $data = [
+            'from' => $from,
+            'to' => $to,
+            'tab' => $tab,
+            'isManager' => $isManager,
+            'summary' => $reports->salesSummary($from, $to),
+            'payments' => $reports->paymentBreakdown($from, $to),
+            'warehouses' => $isManager ? Warehouse::where('is_group', false)->orderBy('name')->get(['id', 'name']) : collect(),
+            'warehouseId' => $this->warehouseId($request, $profile),
+        ];
+
+        if ($tab === 'invoices') {
+            $data['invoices'] = $reports->invoicesQuery($from, $to)->paginate(50)->withQueryString();
+        } elseif ($tab === 'lines') {
+            $data['lines'] = $reports->lineQuery($from, $to)->paginate(100)->withQueryString();
+        } else {
+            $data['stock'] = $reports->stockMovement($from, $to, $data['warehouseId']);
+        }
+
+        return view('pos.dashboard.daily', $data);
+    }
+
+    /** GET /dashboard/daily/export — Excel workbook (manager only, route-level). */
+    public function export(Request $request, ReportService $reports)
+    {
+        [$from, $to] = $this->range($request);
+        $profile = $request->attributes->get('posProfile');
+
+        $book = $reports->workbook(
+            $from,
+            $to,
+            $this->warehouseId($request, $profile),
+            withStock: true,
+            currency: $profile?->effectiveCurrency() ?? '',
+        );
+
+        $name = 'sales-report-'.($from === $to ? $from : "{$from}_to_{$to}").'.xlsx';
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx');
+        $book->save($tmp);
+
+        return response()->download($tmp, $name, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    /** @return array{0:string,1:string} */
+    protected function range(Request $request): array
+    {
+        $request->validate([
+            'date' => ['nullable', 'date'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
         ]);
+        $from = $request->query('from', $request->query('date', now()->toDateString()));
+        $to = $request->query('to', $from);
+        $from = Carbon::parse($from)->toDateString();
+        $to = Carbon::parse($to)->toDateString();
+        if ($to < $from) {
+            [$from, $to] = [$to, $from];
+        }
+
+        return [$from, $to];
+    }
+
+    /** Warehouse filter: explicit ?warehouse=ID, "all", or the POS profile's own warehouse. */
+    protected function warehouseId(Request $request, $profile): ?int
+    {
+        $w = $request->query('warehouse');
+        if ($w === 'all') {
+            return null;
+        }
+        if ($w !== null && $w !== '') {
+            return (int) $w;
+        }
+
+        return $profile?->warehouse_id ? (int) $profile->warehouse_id : null;
     }
 }

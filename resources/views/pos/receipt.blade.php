@@ -59,9 +59,16 @@
         </table>
 
         <div class="border-t border-dashed border-slate-300 pt-3 text-sm space-y-1">
-            <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span>{{ $currency }}{{ number_format($invoice->net_total + $invoice->discount_total, $precision) }}</span></div>
-            @if ($invoice->discount_total > 0)
-            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->discount_total, $precision) }}</span></div>
+            @php
+                $lineDiscounts = max(0, $invoice->discount_total - $invoice->additional_discount_amount);
+                $linesBeforeDiscount = $invoice->items->sum('amount') + $lineDiscounts;
+            @endphp
+            <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span>{{ $currency }}{{ number_format($linesBeforeDiscount, $precision) }}</span></div>
+            @if ($lineDiscounts > 0)
+            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span class="text-red-600">−{{ $currency }}{{ number_format($lineDiscounts, $precision) }}</span></div>
+            @endif
+            @if ($invoice->additional_discount_amount > 0)
+            <div class="flex justify-between"><span class="text-slate-500">Total discount</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->additional_discount_amount, $precision) }}</span></div>
             @endif
             @if ($invoice->coupon_discount > 0)
             <div class="flex justify-between"><span class="text-slate-500">Coupon ({{ $invoice->coupon_code }})</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->coupon_discount, $precision) }}</span></div>

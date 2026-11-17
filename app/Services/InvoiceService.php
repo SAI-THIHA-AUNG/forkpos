@@ -140,6 +140,12 @@ class InvoiceService
             $taxBreakdown = []; // tax_id => [tax, amount]
             $warehouseId = $data['warehouse_id'] ?? $profile->warehouse_id;
 
+            // A return is priced from the ORIGINAL invoice (rate actually paid,
+            // incl. line + invoice-level discounts) and can never exceed what
+            // is still returnable.
+            $returnable = $returnAgainst ? $this->returnableLines($returnAgainst) : [];
+            $returnTotals = []; // item_id => qty requested in this return
+
             foreach ($data['items'] as $line) {
                 /** @var Item $item */
                 $item = Item::available()->findOrFail($line['item_id']);
@@ -152,6 +158,35 @@ class InvoiceService
                 // cannot invent one.
                 $listRate = $item->effectiveRate($profile->selling_price_list, $customer->id);
                 $baseRate = $listRate;
+
+                $returnLine = null;
+                if ($isReturn) {
+                    $returnLine = $returnable[$item->id] ?? null;
+                    if (! $returnLine) {
+                        throw ValidationException::withMessages([
+                            'items' => ["{$item->item_name} was not sold on invoice {$returnAgainst->invoice_no}."],
+                        ]);
+                    }
+                    $returnTotals[$item->id] = ($returnTotals[$item->id] ?? 0.0) + abs((float) $line['qty']);
+                    if ($returnTotals[$item->id] > $returnLine['remaining'] + 0.0001) {
+                        throw ValidationException::withMessages([
+                            'items' => [sprintf(
+                                'Cannot return %s of %s: only %s left to return on %s.',
+                                rtrim(rtrim(number_format($returnTotals[$item->id], 3, '.', ''), '0'), '.'),
+                                $item->item_name,
+                                rtrim(rtrim(number_format($returnLine['remaining'], 3, '.', ''), '0'), '.'),
+                                $returnAgainst->invoice_no,
+                            )],
+                        ]);
+                    }
+                    $listRate = $returnLine['rate'];
+                    $baseRate = $returnLine['rate'];
+                    $line['uom'] = $returnLine['uom'];
+                    $line['tax_id'] = $returnLine['tax_id'];
+                    unset($line['rate'], $line['discount_percentage'], $line['discount_amount']);
+                    $uomName = $returnLine['uom'];
+                    $conversion = $returnLine['conversion_factor'];
+                }
 
                 // Rate overrides are gated by the profile (allow_rate_change).
                 $requestedRate = isset($line['rate']) ? (float) $line['rate'] : null;
@@ -280,6 +315,49 @@ class InvoiceService
                 }
             }
 
+            // ---- Invoice-level (additional) discount ---------------------------------
+            // Applied on the tax-inclusive total (net + tax) and spread
+            // proportionally over net and tax, like ERPNext's
+            // "Apply Discount On: Grand Total". Returns never carry one: their
+            // rates are already taken from the discounted original sale.
+            $additionalDiscount = 0.0;
+            $additionalPercentage = 0.0;
+            $additionalAmount = 0.0;
+            $requestedPercentage = $isReturn ? 0.0 : (float) ($data['additional_discount_percentage'] ?? 0);
+            $requestedAmount = $isReturn ? 0.0 : (float) ($data['additional_discount_amount'] ?? 0);
+            if ($requestedPercentage > 0 || $requestedAmount > 0) {
+                if (! $profile->allow_discount_change) {
+                    throw ValidationException::withMessages([
+                        'additional_discount' => ["Discounts are disabled for POS profile '{$profile->name}'."],
+                    ]);
+                }
+                $preDiscountTotal = $netTotal + $taxTotal;
+                if ($requestedPercentage > 0) {
+                    $additionalPercentage = min(100.0, $requestedPercentage);
+                    $additionalDiscount = $preDiscountTotal * $additionalPercentage / 100;
+                } else {
+                    $additionalDiscount = min($requestedAmount, max(0.0, $preDiscountTotal));
+                    $additionalAmount = $additionalDiscount;
+                    $additionalPercentage = $preDiscountTotal > 0 ? ($additionalDiscount / $preDiscountTotal) * 100 : 0.0;
+                }
+                if ($profile->max_discount_percentage > 0
+                    && $additionalPercentage > $profile->max_discount_percentage + 0.0001) {
+                    throw ValidationException::withMessages([
+                        'additional_discount' => [sprintf('Discount %.2f%% exceeds the profile limit of %.2f%%.', $additionalPercentage, $profile->max_discount_percentage)],
+                    ]);
+                }
+                $keep = $preDiscountTotal > 0 ? 1 - ($additionalDiscount / $preDiscountTotal) : 1.0;
+                $netTotal *= $keep;
+                $taxTotal *= $keep;
+                foreach ($taxBreakdown as $taxId => $entry) {
+                    $taxBreakdown[$taxId]['amount'] = $entry['amount'] * $keep;
+                }
+                $discountTotal += $additionalDiscount;
+                if ($requestedPercentage > 0) {
+                    $additionalAmount = $additionalDiscount;
+                }
+            }
+
             // ---- Taxes summary ----------------------------------------------------
             foreach ($taxBreakdown as $entry) {
                 $invoice->taxes()->create([
@@ -357,8 +435,14 @@ class InvoiceService
             if ($isReturn) {
                 $status = Invoice::STATUS_RETURNED;
                 if ($returnAgainst) {
-                    $returnAgainst->status = Invoice::STATUS_RETURNED;
-                    $returnAgainst->save();
+                    $stillReturnable = 0.0;
+                    foreach ($returnable as $itemId => $row) {
+                        $stillReturnable += max(0.0, $row['remaining'] - ($returnTotals[$itemId] ?? 0.0));
+                    }
+                    if ($stillReturnable <= 0.0001) {
+                        $returnAgainst->status = Invoice::STATUS_RETURNED;
+                        $returnAgainst->save();
+                    }
                 }
             }
 
@@ -368,6 +452,8 @@ class InvoiceService
                 'net_total' => round($netTotal, $precision),
                 'tax_total' => round($taxTotal, $precision),
                 'discount_total' => round($discountTotal, $precision),
+                'additional_discount_percentage' => round($requestedPercentage > 0 ? $additionalPercentage : 0.0, 6),
+                'additional_discount_amount' => round($additionalAmount, $precision),
                 'grand_total' => round($grandTotal, $precision),
                 'rounded_total' => round($grandTotal, $precision),
                 'paid_amount' => round($paidAmount, $precision),
@@ -379,6 +465,78 @@ class InvoiceService
 
             return ['invoice' => $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier']), 'duplicate' => false];
         });
+    }
+
+    /**
+     * What can still be returned on a sale, per item (keyed by item_id).
+     *
+     * `rate` is the unit rate actually charged (line discount and the
+     * invoice-level discount already folded in), so a refund always matches
+     * what the customer paid — never today's price list.
+     *
+     * @return array<int, array{item_id:int,item_name:string,item_code:string,uom:string,conversion_factor:float,
+     *     tax_id:int|null,tax_rate:float,tax_included:bool,sold:float,returned:float,remaining:float,rate:float}>
+     */
+    public function returnableLines(Invoice $invoice): array
+    {
+        $invoice->loadMissing('items');
+
+        $preAdditional = 0.0;
+        foreach ($invoice->items as $line) {
+            $preAdditional += (float) $line->amount + ($line->tax_included ? 0.0 : (float) $line->tax_amount);
+        }
+        $additional = (float) $invoice->additional_discount_amount;
+        $keep = ($additional > 0 && $preAdditional > 0) ? max(0.0, 1 - $additional / $preAdditional) : 1.0;
+
+        $returned = InvoiceItem::query()
+            ->join('invoices', 'invoices.id', '=', 'invoice_items.invoice_id')
+            ->where('invoices.return_against_id', $invoice->id)
+            ->where('invoices.status', '!=', Invoice::STATUS_CANCELLED)
+            ->groupBy('invoice_items.item_id')
+            ->selectRaw('invoice_items.item_id, SUM(ABS(invoice_items.qty)) as qty')
+            ->pluck('qty', 'item_id');
+
+        $rows = [];
+        foreach ($invoice->items as $line) {
+            if (! $line->item_id || (float) $line->qty <= 0) {
+                continue;
+            }
+            $row = $rows[$line->item_id] ?? [
+                'item_id' => (int) $line->item_id,
+                'item_name' => $line->item_name,
+                'item_code' => $line->item_code,
+                'uom' => $line->uom,
+                'conversion_factor' => (float) $line->conversion_factor,
+                'tax_id' => $line->tax_id,
+                'tax_rate' => (float) $line->tax_rate,
+                'tax_included' => (bool) $line->tax_included,
+                'sold' => 0.0,
+                'value' => 0.0,
+            ];
+            $row['sold'] += (float) $line->qty;
+            $row['value'] += (float) $line->amount;
+            $rows[$line->item_id] = $row;
+        }
+
+        foreach ($rows as $itemId => $row) {
+            $alreadyReturned = (float) ($returned[$itemId] ?? 0);
+            $rows[$itemId] = [
+                'item_id' => $row['item_id'],
+                'item_name' => $row['item_name'],
+                'item_code' => $row['item_code'],
+                'uom' => $row['uom'],
+                'conversion_factor' => $row['conversion_factor'],
+                'tax_id' => $row['tax_id'],
+                'tax_rate' => $row['tax_rate'],
+                'tax_included' => $row['tax_included'],
+                'sold' => $row['sold'],
+                'returned' => $alreadyReturned,
+                'remaining' => max(0.0, $row['sold'] - $alreadyReturned),
+                'rate' => $row['sold'] > 0 ? ($row['value'] / $row['sold']) * $keep : 0.0,
+            ];
+        }
+
+        return $rows;
     }
 
     public function cancel(Invoice $invoice, string $reason = ''): Invoice

@@ -14,7 +14,7 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 
 ---
 
-## What is implemented (v0.2.0)
+## What is implemented (v0.3.0)
 
 | Domain | Feature |
 | --- | --- |
@@ -22,14 +22,15 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 | **First-run setup** | Guided flow: replace the bootstrap password → connect ERPNext (verified before saving) → choose POS profiles. Cashiers see an "ask your manager" screen until it is finished |
 | **Web console** | Dashboard, register, shifts, invoices, customers, ERPNext sync, settings and users — with manager/cashier role separation and shared navigation |
 | **POS Profiles** | Pulled from ERPNext: company, currency, price list, warehouse, payment methods, applicable users, tax template and behaviour flags. ERPNext is the source of truth; local edits of synced values are blocked |
-| **Pricing permissions** | Rate change and discounts in the register are gated by the profile (`allow_rate_change` / `allow_discount_change`); discounts can be **percentage or line amount**, with an optional `max_discount_percentage` cap and an item-level `allow_discount` switch |
+| **Pricing permissions** | Rate change and discounts in the register are gated by the profile (`allow_rate_change` / `allow_discount_change`); discounts can be **percentage or amount**, per line and on the whole sale, with an optional `max_discount_percentage` cap and an item-level `allow_discount` switch |
 | **Shifts** | Open shift with per-payment opening balances, cash in/out movements, live summary, close with **expected vs counted reconciliation** |
-| **Invoices** | One-call create+complete, **tax-inclusive and tax-exclusive** math, line discounts (%, amount), invoice coupons, loyalty points, returns (against invoice), cancel with stock restore, **offline idempotency** (`offline_id` UUID), printable receipt |
+| **Invoices** | One-call create+complete, **tax-inclusive and tax-exclusive** math, line discounts (%, amount), invoice-level (total) discount, invoice coupons, loyalty points, cancel with stock restore, **offline idempotency** (`offline_id` UUID), printable receipt |
+| **Returns** | Return against a completed sale, line by line, tracking how much of each item is still returnable. Refunds use the price actually paid (after line and total discounts), go back to the current shift's cash drawer and restore stock |
 | **Catalog** | Items with barcodes, price lists, UOM conversions, item groups, warehouses, live stock quantities |
 | **Customers** | Search, quick-create from POS, walk-in customer, loyalty balance, customer-specific prices |
 | **Stock** | Balance per item/warehouse, ledger entries, negative-stock policy |
 | **Coupons** | Percent / fixed amount, validity window, usage limit, min order, customer-bound |
-| **Reports** | Dashboard (today: sales, payment breakdown, top items, hourly), daily summary |
+| **Reports** | Dashboard (today: sales, payment breakdown, top items, hourly) and a daily report with date ranges, invoice / line-item / inventory-movement tabs and a **multi-sheet Excel export** (manager only) |
 | **ERPNext sync** | Profile-scoped catalog pull with delta cursors (queued, with a progress screen), scheduled profile re-sync, and invoice push back to ERPNext as **Sales Invoice documents** (`is_pos = 1`, linked to the POS profile) |
 
 ## Quick start (first-run setup)
@@ -100,9 +101,10 @@ All migrations use portable types; the app was developed and tested on SQLite fi
 | Page | What it does |
 | --- | --- |
 | `/` | Profile picker (manager pages stay reachable when no profile is selected) |
-| `/pos` | Register: item grid/list, search + barcode scan, categories, cart with per-line price/discount editors, payments, change, receipt |
+| `/pos` | Register: item grid/list, search + barcode scan, categories, cart with per-line price/discount editors, whole-sale total discount, payments, change, receipt |
 | `/shifts` | Shift history, open/close, cash in/out, per-payment reconciliation |
-| `/invoices` | Invoice history, detail, return and cancel |
+| `/invoices` | Sales and returns (filter by type), invoice detail, return against a sale, cancel |
+| `/dashboard`, `/dashboard/daily` | Today's dashboard; daily report with date range, invoice / line-item / inventory-movement tabs and Excel export for managers |
 | `/customers` | Search, create, edit (loyalty + territory) |
 | `/sync` | Connector health, pull masters, push pending invoices, recent failures |
 | `/settings` | Read-only ERPNext "store defaults" (company/currency/price list/flags) plus local invoice prefix and receipt text |
@@ -116,13 +118,40 @@ selected profile.
 
 - A **Price** field appears per line only when the synced profile allows rate
   changes; otherwise the price-list rate is fixed.
-- A **%/Amt** discount control appears only when the profile allows discounts and
+- A **%/Amt** line discount control appears only when the profile allows discounts and
   the item is discountable. The cap (`max_discount_percentage`) is applied to both
   kinds of discount.
-- Totals show subtotal, line discounts, tax and grand total live; the receipt
-  prints the same numbers.
+- A **Total discount** row discounts the whole sale (percentage or amount, taken off
+  the tax-inclusive total and spread over net and tax). It follows the same profile
+  switch and cap.
+- Totals show subtotal, line discounts, total discount, tax and grand total live; the
+  receipt prints the same numbers.
 - The backend re-validates every rule, so a tampered API payload cannot invent a
   price list rate, bypass a permission or exceed the discount cap.
+
+### Returns
+
+- Start from a sale (invoice list **Return** link or the invoice page) and enter the
+  quantity coming back per item; the form shows sold / already returned / left.
+- Lines are refunded at the **price actually paid** — line and total discounts
+  included — never today's price list, and a return can never exceed what is left.
+- A fully returned sale flips to `returned`; partial returns keep it open.
+- The refund (method + amount) belongs to the cashier's **current open shift**, so a
+  return can still be processed after the original shift was closed. Amount `0`
+  records the credit without paying money out.
+- Stock goes back to the invoice's warehouse and the return appears in sales history
+  with a `RETURN` badge.
+
+### Daily report & Excel export
+
+- Date range (`from`/`to`, defaulting to today) with summary cards: sales, returns,
+  line discounts, total discounts, tax and net sales, plus the payment breakdown.
+- Tabs: **Invoices**, **Line items** (one row per sold line) and **Inventory
+  movement** (opening, stock in, stock out, closing per item/warehouse, rebuilt from
+  the stock ledger).
+- Managers can export a four-sheet workbook (Summary, Invoices, Line Items, Inventory
+  Movement) written by the built-in `XlsxWriter` — no spreadsheet dependency, just
+  PHP's `zip` extension.
 
 ---
 
@@ -271,7 +300,7 @@ POST /shifts/{id}/close         → {payments:[{mode_of_payment, counted_amount}
 | GET | `/shifts`, `/shifts/current`, `/shifts/{id}`, `/shifts/{id}/summary` | Shift info |
 | GET | `/shifts/opening-data`, `/shifts/pos-profile-data/{id}` | Opening dialog + register bootstrap |
 | POST | `/shifts/open`, `/shifts/{id}/cash-movement`, `/shifts/{id}/close` | Shift lifecycle |
-| POST | `/invoices` | Create + complete a sale or return |
+| POST | `/invoices` | Create + complete a sale or return (total discount + line discounts; returns priced from the original sale) |
 | GET | `/invoices`, `/invoices/{id}` | History & detail (filters: `status`, `date_from`, `date_to`, `shift_id`, `customer_id`, `q`) |
 | GET | `/invoices/offline-check?ids=a,b,c` | Which offline UUIDs already exist (client-side dedupe) |
 | POST | `/invoices/{id}/cancel` | Cancel + stock restore (cashier owner or manager) |
@@ -291,6 +320,7 @@ POST /api/v1/invoices
   "customer_id": 2,
   "offline_id": "android-uuid-0001",
   "coupon_code": "WELCOME10",
+  "additional_discount_percentage": 5,
   "items": [
     { "item_id": 1, "qty": 5, "tax_id": 1 },
     { "item_id": 17, "qty": 2, "tax_id": 1, "rate": 6.00, "discount_percentage": 5 },
@@ -311,11 +341,16 @@ Rules the backend enforces (ERPNext-compatible math):
 - `discount_percentage` and `discount_amount` (line total) are accepted only when
   the profile allows discounts and the item is discountable; both respect
   `max_discount_percentage` (amounts are validated as an effective percentage).
+- `additional_discount_percentage` / `additional_discount_amount` apply to the whole
+  invoice (the amount is clamped to the tax-inclusive total) and follow the same
+  profile switch and cap. The response returns both fields.
 - **Tax-inclusive** lines: `net = amount / (1 + rate%)`, tax = the remainder.
-- `grand_total = net_total + tax_total − coupon_discount − loyalty_discount`.
+- `grand_total = net_total + tax_total − coupon_discount − loyalty_discount`, where
+  `net_total` and `tax_total` are already reduced by the total discount.
 - `paid_amount > grand_total` → `change_amount`; shortfall → `partly_paid`/`unpaid`.
-- Returns (`is_return: true` + `return_against_id`) store negative quantities and
-  put stock back automatically; cancelling an invoice restores stock too.
+- Returns (`is_return: true` + `return_against_id`) are priced from the original
+  invoice and limited to the quantity still returnable (per item). They store
+  negative quantities, restore stock and never accept their own discount input.
 - `offline_id` is unique — re-sending the same payload returns the original
   invoice with `"duplicate": true` (safe retry / offline flush).
 - Loyalty: 1 point per 100.00 spent (simple v0.2.0 policy), 1 point = 1.00
@@ -340,7 +375,8 @@ The API was designed for a mobile client from day one:
   reconciliation screen is a direct rendering of `GET /shifts/{id}/summary`.
 - Mirror the register rules: read `allow_rate_change`, `allow_discount_change` and
   `max_discount_percentage` from the profile payload, and let the server reject
-  anything the cashier is not allowed to change.
+  anything the cashier is not allowed to change. Line and whole-sale discounts both
+  honour the cap.
 
 Suggested milestones: (1) login + profile + shift screens, (2) item grid +
 cart + checkout against the API, (3) offline queue with offline_id flush,
@@ -355,12 +391,14 @@ php artisan test          # PHPUnit feature tests (in-memory SQLite)
 vendor/bin/pint --dirty   # code style
 ```
 
-The feature suite (**47 tests / 214 assertions**) covers login (password + PIN),
+The feature suite (**59 tests / 286 assertions**) covers login (password + PIN),
 first-run setup and password enforcement, profile visibility, profile-scoped
 catalog sync and delta cursors, shift open/close reconciliation, invoice math,
-rate-change and discount permissions (percent, amount, item and profile caps),
-offline idempotency, insufficient stock, cashier permission limits, the ERPNext
-push payload and the pull summary.
+rate-change and discount permissions (percent, amount, line and whole-sale, item and
+profile caps), the return workflow (remaining quantities, paid-price refunds, stock
+restore), the daily report (line detail, inventory movement, Excel export), offline
+idempotency, insufficient stock, cashier permission limits, the ERPNext push payload
+and the pull summary.
 
 ## Project layout
 
@@ -374,9 +412,10 @@ app/
   Jobs/                      queued profile catalog sync
   Models/                    30 Eloquent models (POS domain)
   Services/                  InvoiceService, ShiftService, StockService, CouponService,
-                             ErpNextClient, SyncService, PosProfileSync, ProfileCatalogSync
-  Support/                   PosProfileConfig (ERPNext → local field mapping)
-database/migrations/         35 migrations (SQLite-first, MySQL-compatible)
+                             ErpNextClient, SyncService, PosProfileSync, ProfileCatalogSync,
+                             ReportService (reports + workbook)
+  Support/                   PosProfileConfig (ERPNext → local field mapping), XlsxWriter
+database/migrations/         36 migrations (SQLite-first, MySQL-compatible)
 database/seeders/            DatabaseSeeder (bootstrap admin) + DemoSeeder (opt-in demo data)
 routes/api.php               /api/v1 route map
 routes/web.php               Blade console route map
@@ -403,6 +442,10 @@ Work in versions so upstream iterations stay reviewable:
   catalog sync with delta cursors, ERPNext-owned settings and profile sync,
   register price-change/discount permissions (%, amount, caps), corrected
   invoice push payload and pull reporting, new test coverage.
+- **v0.3.0** — invoice-level (total) discount with profile cap, returns priced from
+  the original sale with remaining-quantity tracking and refunds on the current
+  shift, Returns navigation, daily report tabs (invoices, line items, inventory
+  movement) and a manager-only multi-sheet Excel export.
 
 See `CHANGELOG.md`.
 

@@ -19,6 +19,8 @@ class InvoiceController extends Controller
         $user = $request->user();
         $query = Invoice::with(['customer', 'cashier', 'posProfile'])
             ->when($request->query('status'), fn ($q, $s) => $q->where('status', $s))
+            ->when($request->query('type') === 'return', fn ($q) => $q->where('is_return', true))
+            ->when($request->query('type') === 'sale', fn ($q) => $q->where('is_return', false))
             ->when($request->query('q'), function ($q, $term) {
                 $q->where(function ($w) use ($term) {
                     $w->where('invoice_no', 'like', "%{$term}%")
@@ -35,25 +37,42 @@ class InvoiceController extends Controller
             'invoices' => $invoices,
             'q' => $request->query('q'),
             'status' => $request->query('status'),
+            'type' => $request->query('type'),
         ]);
     }
 
     public function show(Invoice $invoice)
     {
-        $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier', 'posProfile', 'shift']);
+        $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier', 'posProfile', 'shift', 'returns']);
 
         return view('pos.invoices.show', ['invoice' => $invoice]);
     }
 
     /** GET /invoices/{invoice}/return — return-against dialog. */
-    public function returnForm(Invoice $invoice)
+    public function returnForm(Request $request, Invoice $invoice)
     {
-        if ($invoice->status === Invoice::STATUS_CANCELLED) {
-            return back()->with('error', 'Cannot return a cancelled invoice.');
+        if ($invoice->status === Invoice::STATUS_CANCELLED || $invoice->is_return) {
+            return back()->with('error', 'Only a completed sale can be returned.');
         }
         $invoice->load(['items', 'payments', 'customer']);
 
-        return view('pos.invoices.return', ['invoice' => $invoice]);
+        $lines = collect($this->invoices->returnableLines($invoice))->values();
+        if ($lines->sum('remaining') <= 0.0001) {
+            return redirect()->route('invoices.show', $invoice)
+                ->with('error', 'Everything on this invoice has already been returned.');
+        }
+
+        $profile = $request->attributes->get('posProfile') ?? $invoice->posProfile;
+        $modes = collect($profile?->paymentModes() ?? [])
+            ->merge($invoice->payments->pluck('mode_of_payment'))
+            ->unique()->values();
+
+        return view('pos.invoices.return', [
+            'invoice' => $invoice,
+            'lines' => $lines,
+            'refundModes' => $modes,
+            'defaultMode' => $invoice->payments->first()?->mode_of_payment ?? $modes->first(),
+        ]);
     }
 
     /** POST /invoices/{invoice}/return — submit a return; calls InvoiceService. */
@@ -62,26 +81,37 @@ class InvoiceController extends Controller
         $data = $request->validate([
             'items' => ['required', 'array', 'min:1'],
             'items.*.item_id' => ['required', 'integer', 'exists:items,id'],
-            'items.*.qty' => ['required', 'numeric', 'min:0.01'],
-            'payments' => ['nullable', 'array'],
-            'payments.*.mode_of_payment' => ['required', 'string', 'max:64'],
-            'payments.*.amount' => ['required', 'numeric'],
+            'items.*.qty' => ['nullable', 'numeric', 'min:0'],
+            'refund_mode' => ['nullable', 'string', 'max:64'],
+            'refund_amount' => ['nullable', 'numeric', 'min:0'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
+        // Only lines the cashier actually put a quantity on.
+        $items = collect($data['items'])
+            ->filter(fn ($i) => (float) ($i['qty'] ?? 0) > 0)
+            ->map(fn ($i) => ['item_id' => (int) $i['item_id'], 'qty' => (float) $i['qty']])
+            ->values()->all();
+        if (! $items) {
+            return back()->withErrors(['items' => 'Enter a return quantity for at least one item.'])->withInput();
+        }
+
+        $payments = [];
+        if (! empty($data['refund_mode']) && (float) ($data['refund_amount'] ?? 0) > 0) {
+            $payments[] = ['mode_of_payment' => $data['refund_mode'], 'amount' => (float) $data['refund_amount']];
+        }
+
+        // shift_id is left out on purpose: the refund belongs to the cashier's
+        // CURRENT open shift, not to the (possibly closed) shift of the sale.
         $payload = [
             'pos_profile_id' => $invoice->pos_profile_id,
-            'shift_id' => $invoice->shift_id,
             'customer_id' => $invoice->customer_id,
             'is_return' => true,
             'return_against_id' => $invoice->id,
             'offline_id' => (string) Str::uuid(),
             'remarks' => $data['reason'] ?? null,
-            'items' => collect($data['items'])->map(fn ($i) => [
-                'item_id' => $i['item_id'],
-                'qty' => $i['qty'],
-            ])->all(),
-            'payments' => $data['payments'] ?? [],
+            'items' => $items,
+            'payments' => $payments,
         ];
 
         try {

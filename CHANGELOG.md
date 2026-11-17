@@ -4,6 +4,43 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [0.3.0] — 2026-11-17
+
+Register total discount, a proper returns workflow and a report/export screen.
+
+### Added
+- **Invoice-level (total) discount** in the register and API:
+  `additional_discount_percentage` / `additional_discount_amount`, applied on the
+  tax-inclusive total and spread over net and tax. Gated by
+  `allow_discount_change` and clamped by `max_discount_percentage`.
+- **Returns against a sale**: line-by-line return form showing sold / returned /
+  remaining, refunds priced from what the customer actually paid (line + total
+  discounts), refund method and amount, stock restore, and a `returned` status only
+  once everything is back. Return invoices are listed under a new **Returns** nav
+  entry and shown on the sale's page.
+- **Daily report**: `from`/`to` range, summary cards (sales, returns, line/total
+  discounts, tax, net), payment breakdown, and tabs for invoices, line items and
+  inventory movement (opening / in / out / closing rebuilt from the stock ledger).
+- **Excel export** (`ReportService` + `XlsxWriter`, manager only): four-sheet
+  workbook (Summary, Invoices, Line Items, Inventory Movement) with real numeric
+  cells, no third-party spreadsheet package.
+- `ReportService`, `XlsxWriter` and `DiscountReturnReportTest`.
+
+### Changed
+- Returns are recorded on the cashier's **current open shift** instead of the
+  (possibly closed) shift of the original sale; the sale stays open on partial
+  returns.
+- The return form accepts only quantities that are still returnable and no longer
+  takes per-payment refund rows.
+- ERPNext push sends `apply_discount_on: Grand Total` and
+  `additional_discount_amount` when a total discount was used.
+- `DemoSeeder` dates opening stock a month back so reports show it as an opening
+  balance rather than stock received today.
+
+### Fixed
+- Returning an item no longer refunds today's price list rate; the original paid
+  rate (including discounts) is used.
+
 ## [0.2.0] — 2026-11-17
 
 First-run setup, the Blade web console, and ERPNext as the single source of truth

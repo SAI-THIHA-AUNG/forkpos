@@ -194,6 +194,8 @@ class PosController extends Controller
         $data = $request->validate([
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'coupon_code' => ['nullable', 'string', 'max:32'],
+            'additional_discount_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'additional_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'loyalty_points' => ['nullable', 'integer', 'min:0'],
             'remarks' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],

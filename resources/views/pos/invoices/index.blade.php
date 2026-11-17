@@ -11,6 +11,11 @@
 
     <form method="GET" class="flex gap-2 mb-4">
         <input type="search" name="q" value="{{ $q }}" placeholder="Search invoice no or customer…" class="flex-1 rounded-lg border border-slate-300 px-3 py-2">
+        <select name="type" class="rounded-lg border border-slate-300 px-3 py-2 bg-white">
+            <option value="">Sales &amp; returns</option>
+            <option value="sale" @selected(($type ?? '') === 'sale')>Sales only</option>
+            <option value="return" @selected(($type ?? '') === 'return')>Returns only</option>
+        </select>
         <select name="status" class="rounded-lg border border-slate-300 px-3 py-2 bg-white">
             <option value="">All statuses</option>
             @foreach (['paid','partly_paid','unpaid','returned','cancelled'] as $s)
@@ -28,7 +33,7 @@
             <tbody>
                 @forelse ($invoices as $inv)
                 <tr class="border-b border-slate-50 hover:bg-slate-50">
-                    <td class="px-4 py-2 font-mono text-xs"><a href="{{ route('invoices.show', $inv) }}" class="text-brand-600 hover:underline">{{ $inv->invoice_no }}</a></td>
+                    <td class="px-4 py-2 font-mono text-xs"><a href="{{ route('invoices.show', $inv) }}" class="text-brand-600 hover:underline">{{ $inv->invoice_no }}</a>@if($inv->is_return)<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">RETURN</span>@endif</td>
                     <td class="px-4 py-2 text-slate-500">{{ $inv->posting_datetime?->format('M j, H:i') }}</td>
                     <td class="px-4 py-2">{{ $inv->customer?->customer_name ?? '—' }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $inv->cashier?->name ?? '—' }}</td>
@@ -39,7 +44,12 @@
                         @elseif($inv->sync_status === 'failed')<span class="text-xs text-red-500" title="{{ $inv->erpnext_id }}">!</span>
                         @else<span class="text-xs text-slate-300">·</span>@endif
                     </td>
-                    <td class="px-4 py-2 text-right"><a href="{{ route('invoices.show', $inv) }}" class="text-brand-600 hover:underline text-xs">View</a></td>
+                    <td class="px-4 py-2 text-right whitespace-nowrap">
+                        <a href="{{ route('invoices.show', $inv) }}" class="text-brand-600 hover:underline text-xs">View</a>
+                        @if (! $inv->is_return && $inv->status !== 'cancelled')
+                        <a href="{{ route('invoices.return.form', $inv) }}" class="ml-3 text-amber-600 hover:underline text-xs">Return</a>
+                        @endif
+                    </td>
                 </tr>
                 @empty
                 <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No invoices found.</td></tr>

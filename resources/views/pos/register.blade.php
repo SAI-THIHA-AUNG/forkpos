@@ -8,7 +8,7 @@
 @endphp
 
 @section('content')
-<div class="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-4 lg:h-[calc(100vh-5.5rem)]">
+<div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_28rem] xl:grid-cols-[minmax(0,1fr)_32rem] 2xl:grid-cols-[minmax(0,1fr)_36rem] gap-4 lg:h-[calc(100vh-5.5rem)]">
 
     {{-- Left: catalog --}}
     <div class="flex flex-col gap-3 min-h-0">
@@ -33,7 +33,7 @@
 
         {{-- Product grid --}}
         <div id="product-grid" class="flex-1 overflow-y-auto bg-white rounded-xl border border-slate-200 p-3">
-            <div id="items" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div id="items" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3">
                 {{-- seeded by JS --}}
             </div>
             <div id="loading" class="text-center text-slate-400 text-sm py-8">No items found</div>
@@ -58,9 +58,23 @@
             <p id="cart-empty" class="text-center text-slate-400 text-sm py-8">Scan or tap items to add</p>
         </div>
 
-        <div class="border-t border-slate-100 px-4 py-3 space-y-2 text-sm">
+        <div class="border-t border-slate-100 px-4 py-3 space-y-1.5 text-sm">
             <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span id="subtotal">{{ $currency }}0.00</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Discount</span><span id="discount">{{ $currency }}0.00</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span id="discount" class="text-red-600">{{ $currency }}0.00</span></div>
+            @if ($profile->allow_discount_change)
+            <div class="flex items-center justify-between gap-2">
+                <span class="text-slate-500">Total discount</span>
+                <div class="flex items-center gap-1">
+                    <select id="addl-type" title="Discount type" class="rounded border border-slate-200 px-1 py-0.5 text-xs bg-white">
+                        <option value="percentage">%</option>
+                        <option value="amount">Amt</option>
+                    </select>
+                    <input id="addl-value" type="number" min="0" step="0.01" placeholder="0" title="Discount on the whole sale"
+                           class="w-20 text-right rounded border border-slate-200 px-1.5 py-0.5 text-sm no-spin">
+                    <span id="addl-amount" class="w-24 text-right text-red-600">{{ $currency }}0.00</span>
+                </div>
+            </div>
+            @endif
             <div class="flex justify-between"><span class="text-slate-500">Tax</span><span id="tax">{{ $currency }}0.00</span></div>
             <div class="flex justify-between font-bold text-lg border-t border-slate-100 pt-2"><span>Total</span><span id="grand">{{ $currency }}0.00</span></div>
         </div>
@@ -130,13 +144,17 @@ const PAYMENT_MODES = @json($paymentModesPayload);
 const SEED_ITEMS = @json($seedItemsPayload);
 const GROUPS = @json($groupsPayload);
 
+const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+let GRAND = 0;                                   // current invoice total (number)
+let addlDiscount = { type: 'percentage', value: 0 }; // whole-sale discount
+
 let cart = []; // [{item_id, item_code, item_name, uom, qty, rate, price_list_rate, allow_discount, discount_type, discount_value, tax_id, stock_qty}]
 
 // ---- Render category tiles ---------------------------------------------
 (function renderCategories() {
     const el = document.getElementById('category-tiles');
     el.innerHTML = GROUPS.map(g =>
-        `<button class="shrink-0 px-3 py-1.5 rounded-full text-xs bg-slate-100 hover:bg-brand-100 text-slate-700" data-group="${g.id}">${g.name}</button>`
+        `<button class="shrink-0 px-3 py-1.5 rounded-full text-xs bg-slate-100 hover:bg-brand-100 text-slate-700" data-group="${g.id}">${esc(g.name)}</button>`
     ).join('');
     el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
         document.getElementById('group-filter').value = b.dataset.group;
@@ -161,7 +179,7 @@ function renderItems() {
     // Switch container between card grid and list
     grid.className = viewMode === 'list'
         ? 'divide-y divide-slate-100'
-        : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3';
+        : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3';
 
     grid.innerHTML = items.map(i => viewMode === 'list' ? renderListItem(i) : renderCardItem(i)).join('');
     grid.querySelectorAll('button').forEach(b => b.addEventListener('click', () => addToCart(parseInt(b.dataset.id))));
@@ -171,7 +189,7 @@ function renderCardItem(i) {
     return `
         <button class="text-left p-3 rounded-lg border border-slate-200 hover:border-brand-500 hover:shadow-sm transition bg-white group" data-id="${i.id}">
             <div class="aspect-square mb-2 rounded bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-400 text-2xl font-bold">${i.item_name.charAt(0)}</div>
-            <p class="text-xs font-medium text-slate-700 line-clamp-2 group-hover:text-brand-700">${i.item_name}</p>
+            <p class="text-xs font-medium text-slate-700 line-clamp-2 group-hover:text-brand-700">${esc(i.item_name)}</p>
             <div class="flex items-center justify-between mt-1">
                 <span class="text-sm font-semibold text-brand-700">${CURRENCY}${i.rate.toFixed(PRECISION)}</span>
                 ${i.is_stock_item ? `<span class="text-[10px] ${i.stock_qty > 0 ? 'text-green-600' : 'text-red-500'}">${i.stock_qty > 0 ? i.stock_qty+' '+i.uom : 'out'}</span>` : ''}
@@ -185,8 +203,8 @@ function renderListItem(i) {
         <button class="w-full text-left px-3 py-2 hover:bg-slate-50 transition flex items-center gap-3" data-id="${i.id}">
             <span class="w-8 h-8 rounded bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-400 text-sm font-bold shrink-0">${i.item_name.charAt(0)}</span>
             <span class="flex-1 min-w-0">
-                <span class="block text-sm font-medium text-slate-700 truncate">${i.item_name}</span>
-                <span class="block text-xs text-slate-400 truncate">${i.item_code}</span>
+                <span class="block text-sm font-medium text-slate-700 truncate">${esc(i.item_name)}</span>
+                <span class="block text-xs text-slate-400 truncate">${esc(i.item_code)}</span>
             </span>
             <span class="text-sm font-semibold text-brand-700 shrink-0">${CURRENCY}${i.rate.toFixed(PRECISION)}</span>
             ${i.is_stock_item ? `<span class="text-[10px] ${i.stock_qty > 0 ? 'text-green-600' : 'text-red-500'} shrink-0 w-12 text-right">${i.stock_qty > 0 ? i.stock_qty+' '+i.uom : 'out'}</span>` : ''}
@@ -276,20 +294,20 @@ function lineNet(c) { return Math.max(0, lineGross(c) - lineDiscount(c)); }
 // when the item itself is discountable.
 function priceDiscountControls(c, i) {
     const rateControl = PROFILE.allow_rate_change ? `
-        <label class="text-[10px] text-slate-400">Price</label>
+        <label class="text-xs text-slate-400">Price</label>
         <input type="number" min="0" step="0.01" value="${c.rate}" data-line-rate="${i}" title="Unit price"
-               class="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs no-spin">
+               class="w-20 rounded border border-slate-200 px-1.5 py-1 text-sm no-spin">
     ` : '';
     const discountControl = (PROFILE.allow_discount_change && c.allow_discount) ? `
-        <select data-line-disc-type="${i}" title="Discount type" class="rounded border border-slate-200 px-1 py-0.5 text-xs bg-white">
+        <select data-line-disc-type="${i}" title="Discount type" class="rounded border border-slate-200 px-1 py-1 text-sm bg-white">
             <option value="percentage" ${c.discount_type === 'percentage' ? 'selected' : ''}>%</option>
             <option value="amount" ${c.discount_type === 'amount' ? 'selected' : ''}>Amt</option>
         </select>
         <input type="number" min="0" step="0.01" value="${c.discount_value || ''}" placeholder="0" data-line-disc="${i}" title="Line discount"
-               class="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs no-spin">
+               class="w-16 rounded border border-slate-200 px-1.5 py-1 text-sm no-spin">
     ` : '';
     if (!rateControl && !discountControl) return '';
-    return `<div class="flex items-center gap-1 pl-1">${rateControl}${discountControl}</div>`;
+    return `<div class="flex items-center gap-1.5">${rateControl}${discountControl}</div>`;
 }
 
 function renderCart() {
@@ -299,23 +317,25 @@ function renderCart() {
         document.getElementById('checkout').disabled = true;
     } else {
         el.innerHTML = cart.map((c, i) => `
-            <div class="py-2 border-b border-slate-50">
-                <div class="flex items-center gap-2">
+            <div class="py-2.5 px-1 border-b border-slate-100">
+                <div class="flex items-start gap-2">
                     <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-slate-700 truncate">${c.item_name}</p>
-                        <p class="text-xs text-slate-500">${CURRENCY}${c.rate.toFixed(PRECISION)} / ${c.uom}
-                            ${c.discount_value > 0 ? ` -${c.discount_type === 'percentage' ? c.discount_value + '%' : CURRENCY + c.discount_value}` : ''}
+                        <p class="text-sm font-medium text-slate-800 leading-snug break-words">${esc(c.item_name)}</p>
+                        <p class="text-xs text-slate-500">${CURRENCY}${c.rate.toFixed(PRECISION)} / ${esc(c.uom)}
+                            ${c.discount_value > 0 && c.allow_discount ? `<span class="text-red-600">−${c.discount_type === 'percentage' ? c.discount_value + '%' : CURRENCY + c.discount_value}</span>` : ''}
                         </p>
                     </div>
-                    <div class="flex items-center gap-1">
-                        <button data-qty="${i}" data-delta="-1" class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">-</button>
-                        <input type="number" step="0.001" value="${c.qty}" data-qty-input="${i}" class="w-14 text-center rounded border border-slate-200 px-1 py-0.5 text-sm no-spin">
-                        <button data-qty="${i}" data-delta="1" class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">+</button>
-                    </div>
-                    <span data-line-amount="${i}" class="w-20 text-right text-sm font-medium text-slate-700">${CURRENCY}${lineNet(c).toFixed(PRECISION)}</span>
-                    <button data-remove="${i}" class="text-slate-300 hover:text-red-500">x</button>
+                    <span data-line-amount="${i}" class="text-sm font-semibold text-slate-800 whitespace-nowrap">${CURRENCY}${lineNet(c).toFixed(PRECISION)}</span>
+                    <button data-remove="${i}" title="Remove" class="text-slate-300 hover:text-red-500 leading-none px-1">✕</button>
                 </div>
-                ${priceDiscountControls(c, i)}
+                <div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                    <div class="flex items-center gap-1">
+                        <button data-qty="${i}" data-delta="-1" class="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">−</button>
+                        <input type="number" step="0.001" value="${c.qty}" data-qty-input="${i}" class="w-16 text-center rounded border border-slate-200 px-1 py-1 text-sm no-spin">
+                        <button data-qty="${i}" data-delta="1" class="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">+</button>
+                    </div>
+                    ${priceDiscountControls(c, i)}
+                </div>
             </div>
         `).join('');
         el.querySelectorAll('[data-qty]').forEach(b => b.addEventListener('click', () => changeQty(parseInt(b.dataset.qty), parseInt(b.dataset.delta))));
@@ -368,32 +388,80 @@ function setQty(idx, val) {
     if (val <= 0) { cart.splice(idx, 1); } else { cart[idx].qty = val; }
     renderCart();
 }
-document.getElementById('clear-cart').addEventListener('click', () => { if (confirm('Clear the cart?')) { cart = []; renderCart(); } });
+document.getElementById('clear-cart').addEventListener('click', () => {
+    if (!confirm('Clear the cart?')) return;
+    cart = [];
+    addlDiscount = { type: 'percentage', value: 0 };
+    const av = document.getElementById('addl-value'); if (av) av.value = '';
+    const at = document.getElementById('addl-type'); if (at) at.value = 'percentage';
+    renderCart();
+});
 
 // ---- Totals ------------------------------------------------------------
+// Mirrors InvoiceService: line amounts -> net + tax, then the whole-sale
+// discount is taken off the tax-inclusive total and spread over net and tax.
 function recalcTotals() {
-    let subtotal = 0, tax = 0, discount = 0;
+    let gross = 0, lineDisc = 0, net = 0, tax = 0;
     cart.forEach((c, i) => {
-        const netLine = lineNet(c);
-        subtotal += netLine;
-        discount += lineDiscount(c);
-        const lineEl = document.querySelector(`[data-line-amount="${i}"]`);
-        if (lineEl) lineEl.textContent = CURRENCY + netLine.toFixed(PRECISION);
+        const amount = lineNet(c);
+        gross += lineGross(c);
+        lineDisc += lineDiscount(c);
+        let n = amount, t = 0;
         if (DEFAULT_TAX && c.tax_id) {
             const rate = DEFAULT_TAX.rate;
-            if (DEFAULT_TAX.included_in_price) {
-                tax += netLine - (netLine / (1 + rate / 100));
-            } else {
-                tax += netLine * rate / 100;
+            if (DEFAULT_TAX.included_in_price) { n = amount / (1 + rate / 100); t = amount - n; }
+            else { t = amount * rate / 100; }
+        }
+        net += n; tax += t;
+        const lineEl = document.querySelector(`[data-line-amount="${i}"]`);
+        if (lineEl) lineEl.textContent = CURRENCY + amount.toFixed(PRECISION);
+    });
+
+    const pre = net + tax;
+    let addl = 0;
+    if (PROFILE.allow_discount_change && addlDiscount.value > 0 && pre > 0) {
+        addl = addlDiscount.type === 'percentage'
+            ? pre * Math.min(100, addlDiscount.value) / 100
+            : Math.min(pre, addlDiscount.value);
+    }
+    const keep = pre > 0 ? 1 - addl / pre : 1;
+    tax *= keep;
+    GRAND = net * keep + tax;
+
+    document.getElementById('subtotal').textContent = CURRENCY + gross.toFixed(PRECISION);
+    document.getElementById('discount').textContent = (lineDisc > 0 ? '−' : '') + CURRENCY + lineDisc.toFixed(PRECISION);
+    const addlEl = document.getElementById('addl-amount');
+    if (addlEl) addlEl.textContent = (addl > 0 ? '−' : '') + CURRENCY + addl.toFixed(PRECISION);
+    document.getElementById('tax').textContent = CURRENCY + tax.toFixed(PRECISION);
+    document.getElementById('grand').textContent = CURRENCY + GRAND.toFixed(PRECISION);
+    autofillSinglePayment();
+}
+
+// Whole-sale discount inputs (respect the profile's max discount %).
+(function bindTotalDiscount() {
+    const typeEl = document.getElementById('addl-type');
+    const valEl = document.getElementById('addl-value');
+    if (!typeEl || !valEl) return;
+    typeEl.addEventListener('change', () => {
+        addlDiscount = { type: typeEl.value, value: 0 };
+        valEl.value = '';
+        recalcTotals();
+    });
+    valEl.addEventListener('input', () => {
+        let val = Math.max(0, parseFloat(valEl.value) || 0);
+        if (PROFILE.max_discount_percentage > 0) {
+            const pre = cart.reduce((sum, c) => sum + lineNet(c), 0); // approx. basis for the cap
+            const cap = addlDiscount.type === 'percentage' ? PROFILE.max_discount_percentage : pre * PROFILE.max_discount_percentage / 100;
+            if (val > cap) {
+                val = cap;
+                valEl.value = Number(val.toFixed(2));
+                flash('Maximum discount is ' + PROFILE.max_discount_percentage + '%', 'error');
             }
         }
+        addlDiscount.value = val;
+        recalcTotals();
     });
-    document.getElementById('subtotal').textContent = CURRENCY + subtotal.toFixed(PRECISION);
-    document.getElementById('discount').textContent = CURRENCY + discount.toFixed(PRECISION);
-    document.getElementById('tax').textContent = CURRENCY + tax.toFixed(PRECISION);
-    document.getElementById('grand').textContent = CURRENCY + (subtotal + tax).toFixed(PRECISION);
-    recalcChange();
-}
+})();
 
 // ---- Payments ----------------------------------------------------------
 function defaultPaymentRow() {
@@ -421,8 +489,19 @@ function renderPayments() {
     recalcChange();
 }
 
+function autofillSinglePayment() {
+    // Pre-fill a lone default payment row with the total, like cash-tender POS screens.
+    const defMode = (PAYMENT_MODES.find(p => p.is_default) ?? PAYMENT_MODES[0])?.mode_of_payment;
+    if (payments.length === 1 && payments[0].mode_of_payment === defMode) {
+        payments[0].amount = Number(GRAND.toFixed(PRECISION));
+        renderPayments();
+    } else {
+        recalcChange();
+    }
+}
+
 function recalcChange() {
-    const grand = parseFloat(document.getElementById('grand').textContent.replace(/[^0-9.]/g, '')) || 0;
+    const grand = GRAND;
     const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
     const diff = paid - grand;
     const el = document.getElementById('change');
@@ -436,16 +515,6 @@ document.getElementById('add-payment').addEventListener('click', () => {
     renderPayments();
 });
 renderPayments();
-
-// Pre-fill cash payment with the grand total when items are added.
-const observer = new MutationObserver(() => {
-    const grand = parseFloat(document.getElementById('grand').textContent.replace(/[^0-9.]/g, '')) || 0;
-    if (payments.length === 1 && payments[0].mode_of_payment === (PAYMENT_MODES.find(p=>p.is_default)?.mode_of_payment ?? PAYMENT_MODES[0]?.mode_of_payment)) {
-        payments[0].amount = grand;
-        renderPayments();
-    }
-});
-observer.observe(document.getElementById('grand'), { childList: true, subtree: false, characterData: true });
 
 // ---- Customer search ---------------------------------------------------
 const cs = document.getElementById('customer-search');
@@ -475,7 +544,7 @@ document.addEventListener('click', e => { if (!csResults.contains(e.target) && e
 // ---- Checkout ----------------------------------------------------------
 document.getElementById('checkout').addEventListener('click', () => {
     if (!cart.length) return;
-    const grand = parseFloat(document.getElementById('grand').textContent.replace(/[^0-9.]/g, '')) || 0;
+    const grand = GRAND;
     const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
     if (paid < grand - 0.01) {
         if (!confirm('Payment is short of total. Submit as unpaid invoice?')) return;
@@ -483,6 +552,8 @@ document.getElementById('checkout').addEventListener('click', () => {
     const payload = {
         customer_id: cs.dataset.customerId || null,
         coupon_code: document.getElementById('coupon').value.trim() || null,
+        additional_discount_percentage: addlDiscount.type === 'percentage' && addlDiscount.value > 0 ? addlDiscount.value : null,
+        additional_discount_amount: addlDiscount.type === 'amount' && addlDiscount.value > 0 ? addlDiscount.value : null,
         items: cart.map(c => ({
             item_id: c.item_id,
             qty: c.qty,

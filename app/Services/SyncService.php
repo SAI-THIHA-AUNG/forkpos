@@ -479,6 +479,10 @@ class SyncService
             'items' => $items,
             'payments' => $payments,
             'taxes' => $taxes,
+            // Invoice-level discount: ERPNext applies it on the grand total.
+            'apply_discount_on' => (float) $invoice->additional_discount_amount > 0 ? 'Grand Total' : null,
+            'additional_discount_amount' => (float) $invoice->additional_discount_amount > 0
+                ? round((float) $invoice->additional_discount_amount, 6) : null,
             'remarks' => 'Synced from forkpos Laravel POS ('.$invoice->invoice_no.')',
         ], fn ($v) => $v !== null && $v !== '' && $v !== []);
 

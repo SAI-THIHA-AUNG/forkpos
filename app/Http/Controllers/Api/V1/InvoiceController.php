@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Services\InvoiceService;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
@@ -25,6 +24,8 @@ class InvoiceController extends Controller
             'shift_id' => ['nullable', 'integer', 'exists:pos_opening_shifts,id'],
             'offline_id' => ['nullable', 'string', 'max:64'],
             'coupon_code' => ['nullable', 'string', 'max:32'],
+            'additional_discount_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'additional_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'loyalty_points' => ['nullable', 'integer', 'min:0'],
             'remarks' => ['nullable', 'string', 'max:1000'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
@@ -175,6 +176,8 @@ class InvoiceController extends Controller
             'outstanding_amount' => (float) $invoice->outstanding_amount,
             'coupon_code' => $invoice->coupon_code,
             'coupon_discount' => (float) $invoice->coupon_discount,
+            'additional_discount_percentage' => (float) $invoice->additional_discount_percentage,
+            'additional_discount_amount' => (float) $invoice->additional_discount_amount,
             'loyalty_points_earned' => (int) $invoice->loyalty_points_earned,
             'loyalty_points_spent' => (int) $invoice->loyalty_points_spent,
             'offline_id' => $invoice->offline_id,

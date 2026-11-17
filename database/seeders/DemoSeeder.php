@@ -194,7 +194,9 @@ class DemoSeeder extends Seeder
                 'qty_change' => 100,
                 'qty_after' => 100,
                 'ref_type' => 'opening',
-                'posting_date' => now()->toDateString(),
+                // Dated before today so the inventory report shows it as an
+                // opening balance instead of stock received today.
+                'posting_date' => now()->subMonth()->toDateString(),
             ]);
         }
 

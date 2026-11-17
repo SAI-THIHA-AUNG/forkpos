@@ -68,7 +68,8 @@
     <div class="bg-white rounded-xl border border-slate-200 mb-4 p-4">
         <div class="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
             <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span>{{ $currency }}{{ number_format($invoice->net_total + $invoice->discount_total, $precision) }}</span></div>
-            @if ($invoice->discount_total > 0)<div class="flex justify-between"><span class="text-slate-500">Discounts</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->discount_total, $precision) }}</span></div>@endif
+            @if ($invoice->additional_discount_amount > 0)<div class="flex justify-between"><span class="text-slate-500">Total discount{{ $invoice->additional_discount_percentage > 0 ? ' ('.rtrim(rtrim(number_format($invoice->additional_discount_percentage, 2), '0'), '.').'%)' : '' }}</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->additional_discount_amount, $precision) }}</span></div>@endif
+            @if ($invoice->discount_total > 0)<div class="flex justify-between"><span class="text-slate-500">All discounts</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->discount_total, $precision) }}</span></div>@endif
             @if ($invoice->coupon_discount > 0)<div class="flex justify-between"><span class="text-slate-500">Coupon ({{ $invoice->coupon_code }})</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->coupon_discount, $precision) }}</span></div>@endif
             <div class="flex justify-between"><span class="text-slate-500">Tax</span><span>{{ $currency }}{{ number_format($invoice->tax_total, $precision) }}</span></div>
             <div class="flex justify-between font-bold border-t border-slate-100 pt-1"><span>Total</span><span>{{ $currency }}{{ number_format($invoice->grand_total, $precision) }}</span></div>
@@ -87,6 +88,21 @@
         </div>
         @endif
     </div>
+
+    @if ($invoice->returns->where('status', '!=', 'cancelled')->isNotEmpty())
+    <div class="bg-white rounded-xl border border-slate-200 mb-4 p-4">
+        <p class="text-xs text-slate-500 uppercase tracking-wide mb-2">Returns against this invoice</p>
+        <div class="space-y-1 text-sm">
+            @foreach ($invoice->returns->where('status', '!=', 'cancelled') as $ret)
+            <div class="flex justify-between">
+                <a href="{{ route('invoices.show', $ret) }}" class="text-brand-600 hover:underline font-mono text-xs">{{ $ret->invoice_no }}</a>
+                <span class="text-slate-500">{{ $ret->posting_datetime?->format('M j, H:i') }}</span>
+                <span class="text-red-600 font-medium">{{ $currency }}{{ number_format($ret->grand_total, $precision) }}</span>
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
 
     @if ($invoice->status !== 'cancelled')
     <div class="bg-white rounded-xl border border-slate-200 p-4">

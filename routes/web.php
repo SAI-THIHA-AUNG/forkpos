@@ -102,6 +102,8 @@ Route::middleware('auth')->group(function () {
             // Dashboard (reports)
             Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
             Route::get('/dashboard/daily', [DashboardController::class, 'daily'])->name('dashboard.daily');
+            Route::get('/dashboard/daily/export', [DashboardController::class, 'export'])
+                ->middleware('role:admin,manager')->name('dashboard.daily.export');
         });
     });
 });
