@@ -68,9 +68,14 @@ class Item extends Model
 
     /**
      * Effective selling rate for a price list (falls back to standard_rate).
+     * A null price list (profile without one) means: use standard_rate.
      */
-    public function effectiveRate(string $priceList = 'Standard Selling', ?int $customerId = null): float
+    public function effectiveRate(?string $priceList = null, ?int $customerId = null): float
     {
+        if ($priceList === null || $priceList === '') {
+            return (float) $this->standard_rate;
+        }
+
         $price = $this->prices()
             ->where('price_list', $priceList)
             ->whereNull('customer_id')

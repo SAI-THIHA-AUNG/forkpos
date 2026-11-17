@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Console\Commands\SyncMastersCommand;
 use App\Http\Controllers\Controller;
 use App\Models\Coupon;
 use App\Models\Setting;
 use App\Models\Tax;
 use App\Services\CouponService;
+use App\Services\ErpNextClient;
 use Illuminate\Http\Request;
 
 class SettingController extends Controller
@@ -69,26 +69,28 @@ class SettingController extends Controller
         ]);
 
         $setting = Setting::current();
-        $setting->fill($data)->save();
+        $connectorChanged = collect(['erpnext_url', 'erpnext_api_key', 'erpnext_api_secret'])
+            ->contains(fn ($k) => array_key_exists($k, $data));
+        $setting->fill($data);
+        if ($connectorChanged) {
+            $setting->erpnext_verified_at = null; // must be proven again
+        }
+        $setting->save();
         Setting::flushCache();
 
-        // Check if ERPNext credentials were just set/updated
-        $erpnextConfigured = ! empty($setting->erpnext_url) && ! empty($setting->erpnext_api_key) && ! empty($setting->erpnext_api_secret);
-
-        if ($erpnextConfigured) {
+        $message = 'Settings updated.';
+        if ($connectorChanged && $setting->erpnextEnabled()) {
             try {
-                // Sync initial data from ERPNext
-                SyncMastersCommand::syncInitialData();
-
-                // Create or update POS profiles with ERPNext warehouses
-                SyncMastersCommand::updatePosProfiles();
-            } catch (\Exception $e) {
-                // Log the error but don't fail the settings update
-                \Log::error('ERPNext sync failed after settings update: '.$e->getMessage());
+                $erpUser = ErpNextClient::make($setting->erpnext_url, $setting->erpnext_api_key, $setting->erpnext_api_secret)->verify()['user'];
+                $setting->forceFill(['erpnext_verified_at' => now()])->save();
+                Setting::flushCache();
+                $message .= " Connected to ERPNext as {$erpUser}. Choose the POS profiles for this terminal next.";
+            } catch (\Throwable $e) {
+                return response()->json(['data' => ['message' => 'Settings saved, but ERPNext rejected the credentials: '.$e->getMessage()]], 422);
             }
         }
 
-        return response()->json(['data' => ['message' => 'Settings updated.'.($erpnextConfigured ? ' Data synced from ERPNext.' : '')]]);
+        return response()->json(['data' => ['message' => $message]]);
     }
 
     /**

@@ -27,16 +27,11 @@ class EnsureProfileSelected
             return redirect()->route('home')->with('warning', 'Please select a POS profile first.');
         }
 
-        $profile = PosProfile::where('disabled', false)->find($profileId);
+        $profile = PosProfile::visibleTo($user)->find($profileId);
         if (! $profile) {
             Session::forget('pos_profile_id');
-            return redirect()->route('home')->with('warning', 'Your selected POS profile is no longer available.');
-        }
 
-        // Managers can use any profile; cashiers only those they are attached to.
-        if (! $user->isManager() && ! $profile->users()->where('users.id', $user->id)->exists()) {
-            Session::forget('pos_profile_id');
-            return redirect()->route('home')->with('warning', 'You are no longer assigned to that POS profile.');
+            return redirect()->route('home')->with('warning', 'Your selected POS profile is no longer available to you.');
         }
 
         // Expose the resolved profile to controllers/views for the current request.

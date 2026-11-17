@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SyncProfileCatalog;
 use App\Models\Invoice;
 use App\Models\InvoicePayment;
 use App\Models\InvoiceTax;
@@ -29,8 +30,7 @@ class ShiftService
      */
     public function openingDialogData(User $user): array
     {
-        $profiles = PosProfile::where('disabled', false)
-            ->when(! $user->isManager(), fn ($q) => $q->whereHas('users', fn ($u) => $u->where('users.id', $user->id)))
+        $profiles = PosProfile::visibleTo($user)
             ->with('payments')
             ->orderBy('name')
             ->get();
@@ -52,9 +52,9 @@ class ShiftService
 
     public function open(User $user, array $data): PosOpeningShift
     {
-        return DB::transaction(function () use ($user, $data) {
+        $shift = DB::transaction(function () use ($user, $data) {
             /** @var PosProfile $profile */
-            $profile = PosProfile::where('disabled', false)->findOrFail($data['pos_profile_id']);
+            $profile = PosProfile::visibleTo($user)->findOrFail($data['pos_profile_id']);
 
             $open = PosOpeningShift::where('user_id', $user->id)
                 ->where('status', PosOpeningShift::STATUS_OPEN)
@@ -94,6 +94,13 @@ class ShiftService
 
             return $shift->load(['balances', 'posProfile.payments']);
         });
+
+        // Opening a shift is the trigger that pulls this profile's catalog.
+        if ($shift->posProfile->isErpnextSynced()) {
+            SyncProfileCatalog::dispatch($shift->pos_profile_id)->afterCommit();
+        }
+
+        return $shift;
     }
 
     public function currentOpenShift(User $user): ?PosOpeningShift
@@ -114,7 +121,8 @@ class ShiftService
             'shift_id' => $shift->id,
             'user_id' => $user->id,
             'type' => $data['type'],
-            'mode_of_payment' => $data['mode_of_payment'] ?? 'Cash',
+            'mode_of_payment' => $data['mode_of_payment']
+                ?? $shift->posProfile->payments()->orderByDesc('is_default')->value('mode_of_payment'),
             'amount' => (float) $data['amount'],
             'reason' => $data['reason'] ?? null,
         ]);

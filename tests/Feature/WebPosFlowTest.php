@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Customer;
 use App\Models\User;
+use Database\Seeders\DemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -18,7 +20,7 @@ class WebPosFlowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seed(DemoSeeder::class);
     }
 
     public function test_anonymous_visitor_is_redirected_to_login(): void
@@ -46,6 +48,15 @@ class WebPosFlowTest extends TestCase
     {
         $this->from('/login')->post('/login', ['pin' => '0000'])
             ->assertSessionHasErrors(['pin']);
+    }
+
+    public function test_a_stale_pin_does_not_hijack_email_password_login(): void
+    {
+        $this->post('/login', [
+            'email' => 'cashier@pos.test',
+            'password' => 'password',
+            'pin' => '0000',
+        ])->assertRedirect('/');
     }
 
     public function test_profile_selection_requires_a_valid_profile(): void
@@ -112,7 +123,7 @@ class WebPosFlowTest extends TestCase
     {
         $cashier = User::where('email', 'cashier@pos.test')->first();
         $profile = $cashier->posProfiles()->first();
-        $customer = \App\Models\Customer::where('is_walk_in', false)->first();
+        $customer = Customer::where('is_walk_in', false)->first();
         $originalPoints = $customer->loyalty_points;
 
         $this->actingAs($cashier)

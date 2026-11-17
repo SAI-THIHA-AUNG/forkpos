@@ -29,8 +29,8 @@ return new class extends Migration
             $table->decimal('paid_amount', 18, 6)->default(0);
             $table->decimal('change_amount', 18, 6)->default(0);
             $table->decimal('outstanding_amount', 18, 6)->default(0);
-            $table->string('currency', 8)->default('USD');
-            $table->string('price_list', 64)->default('Standard Selling');
+            $table->string('currency', 8);
+            $table->string('price_list', 64)->nullable();
             $table->string('coupon_code', 32)->nullable();
             $table->decimal('coupon_discount', 18, 6)->default(0);
             $table->integer('loyalty_points_earned')->default(0);

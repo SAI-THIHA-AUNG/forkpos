@@ -12,7 +12,7 @@ class Setting extends Model
         'tax_inclusive_prices', 'allow_negative_stock', 'invoice_prefix',
         'next_invoice_number', 'receipt_footer', 'receipt_header',
         'erpnext_url', 'erpnext_api_key', 'erpnext_api_secret',
-        'erpnext_company', 'erpnext_price_list', 'last_synced_at',
+        'erpnext_company', 'erpnext_price_list', 'erpnext_verified_at', 'last_synced_at',
     ];
 
     protected function casts(): array
@@ -23,6 +23,7 @@ class Setting extends Model
             'next_invoice_number' => 'integer',
             'erpnext_api_secret' => 'encrypted',
             'last_synced_at' => 'datetime',
+            'erpnext_verified_at' => 'datetime',
         ];
     }
 
@@ -36,11 +37,7 @@ class Setting extends Model
     public static function current(): self
     {
         $attributes = Cache::remember('pos.settings', 300, function () {
-            return static::query()->firstOrCreate(['id' => 1], [
-                'company_name' => 'My Company',
-                'currency' => 'USD',
-                'currency_symbol' => '$',
-            ])->getAttributes();
+            return static::query()->firstOrCreate(['id' => 1])->getAttributes();
         });
 
         $model = new self;

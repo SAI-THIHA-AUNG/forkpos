@@ -26,11 +26,13 @@ class AuthController extends Controller
         $user = null;
         if (isset($credentials['pin'])) {
             // PIN login — POS terminals / Android app quick sign-in.
-            $candidates = User::where('is_active', true)->get();
-            $user = $candidates->first(fn (User $u) => $u->pos_pin && Hash::check($credentials['pin'], $u->pos_pin));
-            if (! $user) {
+            $matches = User::where('is_active', true)->whereNotNull('pos_pin')->get()
+                ->filter(fn (User $u) => Hash::check($credentials['pin'], $u->pos_pin));
+            // Exactly one user must match: an ambiguous PIN must never pick "the first" account.
+            if ($matches->count() !== 1) {
                 throw ValidationException::withMessages(['pin' => ['Invalid PIN.']]);
             }
+            $user = $matches->first();
         } else {
             $user = User::where('email', $credentials['email'])->first();
             if (! $user || ! Hash::check($credentials['password'], $user->password)) {
@@ -40,6 +42,10 @@ class AuthController extends Controller
 
         if (! $user->is_active) {
             throw ValidationException::withMessages(['email' => ['This account is disabled.']]);
+        }
+
+        if ($user->must_change_password) {
+            throw ValidationException::withMessages(['email' => ['Password change required. Sign in on the web console first to set a new password.']]);
         }
 
         $token = $user->createToken('pos-'.($request->userAgent() ?: 'client'))->plainTextToken;

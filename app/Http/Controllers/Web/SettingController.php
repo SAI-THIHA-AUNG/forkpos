@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\Tax;
+use App\Services\ErpNextClient;
 use App\Services\PosProfileSync;
 use Illuminate\Http\Request;
 use Throwable;
@@ -20,17 +21,24 @@ class SettingController extends Controller
         $taxes = Tax::orderByDesc('is_default')->orderBy('name')->get();
 
         // ERPNext-sourced POS profiles — the cards shown under the "Sync POS
-        // Profiles" section. NULL when the connector isn't configured yet.
+        // Profiles" section. Empty when the connector isn't configured yet.
         $erpProfiles = PosProfile::whereNotNull('erpnext_id')
             ->with(['payments', 'warehouse'])
             ->orderByDesc('synced_at')
             ->orderBy('name')
             ->get();
 
+        // The profile the settings page reports on: the cashier's selection,
+        // or the most recently synced profile.
+        $activeProfile = session('pos_profile_id')
+            ? $erpProfiles->firstWhere('id', (int) session('pos_profile_id')) ?? $erpProfiles->first()
+            : $erpProfiles->first();
+
         return view('pos.settings.edit', [
             'setting' => $setting,
             'taxes' => $taxes,
             'erpProfiles' => $erpProfiles,
+            'activeProfile' => $activeProfile,
         ]);
     }
 
@@ -72,19 +80,21 @@ class SettingController extends Controller
 
         $messages = ['Settings updated.'];
 
-        // Auto-fetch POS Profile data when the connector config changes.
-        // Wrapped in try/catch — settings should still save even if the pull
-        // fails. The error surfaces as a `warning` flash so the user knows.
-        if ($connectorChanged && $setting->erpnextEnabled()) {
-            try {
-                $result = $this->profileSync->syncAll();
-                $messages[] = sprintf('Pulled %d POS Profile(s) from ERPNext.', $result['synced']);
-                if ($result['errors']) {
-                    $messages[] = 'Some profiles failed: '.implode(' | ', array_slice($result['errors'], 0, 3));
+        // Connector changed: the new key/secret must be proven before anything uses it.
+        if ($connectorChanged) {
+            $setting->forceFill(['erpnext_verified_at' => null])->save();
+            if ($setting->erpnextEnabled()) {
+                try {
+                    $erpUser = app(ErpNextClient::class)->verify()['user'];
+                    $setting->forceFill(['erpnext_verified_at' => now()])->save();
+                    $messages[] = "Connected to ERPNext as {$erpUser}.";
+                } catch (Throwable $e) {
+                    Setting::flushCache();
+
+                    return back()->with('error', 'Settings saved, but ERPNext rejected the credentials: '.$e->getMessage());
                 }
-            } catch (Throwable $e) {
-                $messages[] = 'ERPNext POS Profile pull failed (settings still saved): '.$e->getMessage();
             }
+            Setting::flushCache();
         }
 
         return back()->with('success', implode(' ', $messages));

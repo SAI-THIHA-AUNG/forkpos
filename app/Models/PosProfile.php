@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -18,7 +19,7 @@ class PosProfile extends Model
         'allow_rate_change', 'allow_discount_change', 'allow_negative_stock',
         'tax_inclusive', 'write_off_limit', 'write_off_account', 'cost_center',
         'max_discount_percentage',
-        'ask_for_customer', 'require_shift', 'is_default', 'disabled',
+        'ask_for_customer', 'require_shift', 'is_default', 'disabled', 'device_enabled',
         'erpnext_id', 'erpnext_data', 'synced_at',
     ];
 
@@ -35,6 +36,7 @@ class PosProfile extends Model
             'require_shift' => 'boolean',
             'is_default' => 'boolean',
             'disabled' => 'boolean',
+            'device_enabled' => 'boolean',
             'erpnext_data' => 'array',
             'synced_at' => 'datetime',
         ];
@@ -77,9 +79,9 @@ class PosProfile extends Model
      * Effective currency ISO code for this profile.
      *
      * Priority:
-     *   1. profile.currency (when ERPNext-synced — this is how "Test Van POS" reports MMK)
-     *   2. profile.currency (when locally set on a non-synced profile)
-     *   3. settings.currency (the store-wide default — usually USD on fresh installs)
+     *   1. profile.currency (ERPNext-synced, or set locally on a non-synced profile)
+     *   2. settings.currency (optional store-wide value; empty unless an admin set it)
+     * There is no built-in currency literal.
      *
      * The optional $setting arg lets callers reuse an already-loaded Setting
      * instance and skip a fresh DB/cache lookup.
@@ -92,7 +94,7 @@ class PosProfile extends Model
 
         $setting ??= Setting::current();
 
-        return $setting->currency ?: 'USD';
+        return (string) $setting->currency;
     }
 
     /**
@@ -121,8 +123,10 @@ class PosProfile extends Model
      * Map an ISO 4217 currency code to a display symbol. Locale-independent
      * (no PHP intl dependency). Falls back to the raw ISO code.
      */
-    public static function symbolFor(string $currency): string
+    public static function symbolFor(?string $currency): string
     {
+        $currency = (string) $currency;
+
         return [
             'USD' => '$', 'EUR' => '€', 'GBP' => '£', 'JPY' => '¥', 'CNY' => '¥',
             'MMK' => 'Ks', 'THB' => '฿', 'INR' => '₹', 'SGD' => 'S$', 'MYR' => 'RM',
@@ -140,5 +144,73 @@ class PosProfile extends Model
     public function erpnextDoc(): array
     {
         return is_array($this->erpnext_data) ? $this->erpnext_data : [];
+    }
+
+    /**
+     * Profiles a user may work on, on THIS terminal.
+     *
+     * Mirrors ERPNext: a profile with no "Applicable for Users" rows is open to
+     * everyone; otherwise only the listed users (managers always see all).
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        return $query->where('disabled', false)
+            ->where('device_enabled', true)
+            ->when(! $user->isManager(), function (Builder $q) use ($user) {
+                $q->where(function (Builder $w) use ($user) {
+                    $w->whereDoesntHave('users')
+                        ->orWhereHas('users', fn ($u) => $u->where('users.id', $user->id));
+                });
+            });
+    }
+
+    /** ERPNext "Item Groups" child table (empty = every item group). @return list<string> */
+    public function itemGroups(): array
+    {
+        return $this->childValues('item_groups', 'item_group');
+    }
+
+    /** ERPNext "Customer Groups" child table (empty = every customer group). @return list<string> */
+    public function customerGroups(): array
+    {
+        return $this->childValues('customer_groups', 'customer_group');
+    }
+
+    /** ERPNext "Taxes and Charges" template name for this profile, if any. */
+    public function taxTemplate(): ?string
+    {
+        return $this->erpnextDoc()['taxes_and_charges'] ?? null ?: null;
+    }
+
+    /** ERPNext default customer of this profile (e.g. "Walk-in Customer"), if any. */
+    public function defaultCustomer(): ?string
+    {
+        return $this->erpnextDoc()['customer'] ?? null ?: null;
+    }
+
+    /** ERPNext "Applicable for Users" rows as [user => is_default]. @return array<string, bool> */
+    public function applicableUsers(): array
+    {
+        $out = [];
+        foreach ($this->erpnextDoc()['applicable_for_users'] ?? [] as $row) {
+            if (! empty($row['user'])) {
+                $out[$row['user']] = (bool) ($row['default'] ?? false);
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return list<string> */
+    protected function childValues(string $table, string $field): array
+    {
+        $values = [];
+        foreach ($this->erpnextDoc()[$table] ?? [] as $row) {
+            if (! empty($row[$field])) {
+                $values[] = $row[$field];
+            }
+        }
+
+        return array_values(array_unique($values));
     }
 }

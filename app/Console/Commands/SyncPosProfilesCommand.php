@@ -19,7 +19,8 @@ class SyncPosProfilesCommand extends Command
 {
     protected $signature = 'forkpos:sync-profiles
                             {name? : ERPNext POS Profile name to sync (omit to sync all)}
-                            {--limit=200 : Max profiles per pull when syncing all}';
+                            {--limit=200 : Max profiles per pull when using --all}
+                            {--all : Pull EVERY ERPNext profile, not just the ones enabled on this terminal}';
 
     protected $description = 'Pull POS Profile documents from ERPNext (currency, warehouse, payment methods, ...)';
 
@@ -48,8 +49,12 @@ class SyncPosProfilesCommand extends Command
             }
         }
 
-        $this->info('Pulling all non-disabled POS Profiles from ERPNext...');
-        $result = $sync->syncAll((int) $this->option('limit'));
+        $this->info($this->option('all')
+            ? 'Pulling all non-disabled POS Profiles from ERPNext...'
+            : 'Re-pulling the POS Profiles enabled on this terminal...');
+        $result = $this->option('all')
+            ? $sync->syncAll((int) $this->option('limit'))
+            : $sync->syncEnabled();
 
         $this->info(sprintf('Synced %d profile(s).', $result['synced']));
 

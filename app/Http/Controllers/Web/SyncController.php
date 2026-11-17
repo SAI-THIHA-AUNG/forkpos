@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
+use App\Models\PosProfile;
+use App\Models\Setting;
 use App\Services\ErpNextClient;
+use App\Services\SyncContext;
 use App\Services\SyncService;
 use Illuminate\Http\Request;
 
@@ -17,15 +20,14 @@ class SyncController extends Controller
 
     public function index()
     {
-        $setting = \App\Models\Setting::current();
-        $configured = (bool) ($setting->erpnext_url && $setting->erpnext_api_key && $setting->erpnext_api_secret)
-            || config('services.erpnext.url');
+        $setting = Setting::current();
+        $configured = $setting->erpnextEnabled();
 
         $reachable = null;
         $ping = null;
         if ($configured) {
             try {
-                $ping = $this->client->ping()['message'] ?? null;
+                $ping = 'Authenticated as '.$this->client->verify()['user'];
                 $reachable = true;
             } catch (\Throwable $e) {
                 $reachable = false;
@@ -54,18 +56,50 @@ class SyncController extends Controller
     public function pullMasters(Request $request)
     {
         $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
+
+        // The form is a single free-text field: "uom,item,stock". Normalise it
+        // into the array the validator (and the sync service) expect.
+        $request->merge([
+            'entities' => collect((array) $request->input('entities', []))
+                ->flatMap(fn ($value) => explode(',', (string) $value))
+                ->map(fn ($value) => trim($value))
+                ->filter()
+                ->values()
+                ->all(),
+        ]);
+
         $data = $request->validate([
             'entities' => ['nullable', 'array'],
             'entities.*' => ['string', 'in:'.implode(',', $valid)],
             'limit' => ['nullable', 'integer', 'min:1', 'max:2000'],
         ]);
-        $entities = $data['entities'] ?? $valid;
+        $entities = $data['entities'] ?? [];
+        if (! $entities) {
+            $entities = $valid;
+        }
+
+        // Scope the pull to the POS profile the cashier picked (warehouse,
+        // price list, item/customer groups, tax template) — the same context
+        // the queued catalog sync uses. Without a selection, pull globally.
+        $profile = $request->session()->get('pos_profile_id')
+            ? PosProfile::find($request->session()->get('pos_profile_id'))
+            : null;
+        $ctx = $profile ? SyncContext::forProfile($profile) : null;
 
         try {
-            $result = $this->sync->pullMasters($entities, $data['limit'] ?? 500);
-            $msg = collect($result['summary'] ?? [])->map(fn ($s, $k) => "{$k}: pulled={$s['pulled']}, errors={$s['errors']}")->implode(' | ');
+            $result = $this->sync->pullMasters($entities, $data['limit'] ?? 500, $ctx);
 
-            return back()->with('success', 'Master sync done. '.$msg);
+            $msg = collect($result['results'] ?? [])
+                ->map(fn ($s, $k) => "{$k}: {$s['pulled']} pulled, {$s['upserted']} upserted")
+                ->implode('; ');
+            $errors = $result['errors'] ?? [];
+
+            $summary = $msg !== '' ? "Master sync done ({$msg})." : 'Master sync done.';
+            if ($errors) {
+                return back()->with('warning', $summary.' Problems: '.implode(' | ', $errors));
+            }
+
+            return back()->with('success', $summary);
         } catch (\Throwable $e) {
             return back()->with('error', 'Master sync failed: '.$e->getMessage());
         }
@@ -73,17 +107,37 @@ class SyncController extends Controller
 
     public function pushInvoices(Request $request)
     {
+        // "1,2,3" from the free-text field → [1, 2, 3].
+        $request->merge([
+            'invoice_ids' => collect((array) $request->input('invoice_ids', []))
+                ->flatMap(fn ($value) => explode(',', (string) $value))
+                ->map(fn ($value) => trim($value))
+                ->filter()
+                ->values()
+                ->all(),
+        ]);
+
         $data = $request->validate([
             'invoice_ids' => ['nullable', 'array'],
             'invoice_ids.*' => ['integer'],
         ]);
 
+        $ids = $data['invoice_ids'] ?? [];
+        // An empty selection means "all pending".
+        $ids = $ids ? array_map('intval', $ids) : null;
+
         try {
-            $result = $this->sync->pushInvoices($data['invoice_ids'] ?? null);
+            $result = $this->sync->pushInvoices($ids);
             $pushed = $result['pushed'] ?? 0;
             $failed = $result['failed'] ?? 0;
+            $errors = $result['errors'] ?? [];
 
-            return back()->with($failed > 0 ? 'warning' : 'success', "Pushed {$pushed} invoice(s), failed {$failed}.");
+            $message = "Pushed {$pushed} invoice(s), failed {$failed}.";
+            if ($errors) {
+                $message .= ' '.implode(' | ', array_slice($errors, 0, 5));
+            }
+
+            return back()->with($failed > 0 ? 'warning' : 'success', $message);
         } catch (\Throwable $e) {
             return back()->with('error', 'Push failed: '.$e->getMessage());
         }

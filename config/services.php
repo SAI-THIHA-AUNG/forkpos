@@ -35,23 +35,4 @@ return [
         ],
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | ERPNext Connector
-    |--------------------------------------------------------------------------
-    |
-    | Fallback credentials for pulling master data from a real ERPNext and
-    | pushing POS invoices back. Prefer storing these at runtime via
-    | PUT /api/v1/settings (encrypted in SQLite); these env values are the
-    | bootstrap alternative.
-    |
-    */
-    'erpnext' => [
-        'url' => env('ERPNEXT_URL'),
-        'api_key' => env('ERPNEXT_API_KEY'),
-        'api_secret' => env('ERPNEXT_API_SECRET'),
-        'company' => env('ERPNEXT_COMPANY'),
-        'price_list' => env('ERPNEXT_PRICE_LIST', 'Standard Selling'),
-    ],
-
 ];

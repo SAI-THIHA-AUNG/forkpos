@@ -11,10 +11,10 @@ return new class extends Migration
         Schema::create('pos_profiles', function (Blueprint $table) {
             $table->id();
             $table->string('name', 64)->unique();
-            $table->string('company', 128)->default('My Company');
-            $table->string('currency', 8)->default('USD');
+            $table->string('company', 128)->nullable();
+            $table->string('currency', 8)->nullable();
             $table->foreignId('warehouse_id')->nullable()->constrained('warehouses')->nullOnDelete();
-            $table->string('selling_price_list', 64)->default('Standard Selling');
+            $table->string('selling_price_list', 64)->nullable();
             $table->boolean('allow_rate_change')->default(true);
             $table->boolean('allow_discount_change')->default(true);
             $table->boolean('allow_negative_stock')->default(false);

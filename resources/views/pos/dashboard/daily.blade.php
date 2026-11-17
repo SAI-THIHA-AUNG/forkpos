@@ -2,7 +2,7 @@
 @section('title', 'Daily summary')
 
 @php
-    $currency = \App\Models\Setting::current()->currency_symbol ?? '$';
+    $currency = optional(request()->attributes->get('posProfile'))->effectiveCurrencySymbol() ?? '';
     $precision = 2;
 @endphp
 

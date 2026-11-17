@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\SettingController;
 use App\Http\Controllers\Api\V1\ShiftController;
 use App\Http\Controllers\Api\V1\SyncController;
+use App\Services\SetupState;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -33,7 +34,8 @@ Route::prefix('v1')->group(function () {
         ]);
     });
 
-    Route::post('auth/login', [AuthController::class, 'login']);
+    Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::get('setup/status', fn () => response()->json(['data' => app(SetupState::class)->publicStatus()]));
     Route::post('auth/register', [AuthController::class, 'register']); // open only while zero users exist
 
     // ----- Authenticated (Sanctum bearer token) ------------------------------

@@ -2,7 +2,7 @@
 @section('title', "Receipt {$invoice->invoice_no}")
 
 @php
-    $currency = $setting->currency_symbol ?? '$';
+    $currency = \App\Models\PosProfile::symbolFor($invoice->currency);
     $precision = $setting->currency_precision ?? 2;
 @endphp
 

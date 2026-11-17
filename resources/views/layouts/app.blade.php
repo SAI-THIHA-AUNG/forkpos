@@ -39,11 +39,14 @@
 @if(session()->has('pos_profile_id'))
 <div>
     <aside id="sidebar" class="no-print fixed inset-y-0 left-0 w-56 bg-slate-900 text-slate-300 flex flex-col py-4 z-30 transition-all duration-200 overflow-hidden whitespace-nowrap">
-        <a href="{{ route('pos.register') }}" class="brand flex items-center gap-2 px-4 mb-6">
+        <a href="{{ route('home') }}" class="brand flex items-center gap-2 px-4 mb-6" title="Home - choose POS profile">
             <span class="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center font-bold text-lg shrink-0">F</span>
             <span class="brand-text font-semibold text-white text-sm">ForkPOS</span>
         </a>
         <nav class="flex-1 flex flex-col gap-1 px-2">
+            <a href="{{ route('home') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('home') ? 'bg-slate-800 text-white' : '' }}" title="Home">
+                <span class="w-5 text-center text-lg shrink-0">🏠</span><span class="nav-text text-sm">Home</span>
+            </a>
             <a href="{{ route('pos.register') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('pos.register') ? 'bg-slate-800 text-white' : '' }}" title="Register">
                 <span class="w-5 text-center text-lg shrink-0">🛒</span><span class="nav-text text-sm">Register</span>
             </a>
@@ -67,6 +70,9 @@
                 <span class="nav-text ml-auto min-w-5 h-5 px-1 rounded-full bg-amber-500 text-black text-[11px] font-bold flex items-center justify-center">{{ $pendingSync }}</span>
                 @endif
             </a>
+            <a href="{{ route('users.index') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('users.*') ? 'bg-slate-800 text-white' : '' }}" title="Users">
+                <span class="w-5 text-center text-lg shrink-0">👥</span><span class="nav-text text-sm">Users</span>
+            </a>
             <a href="{{ route('settings.edit') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('settings.*') ? 'bg-slate-800 text-white' : '' }}" title="Settings">
                 <span class="w-5 text-center text-lg shrink-0">⚙️</span><span class="nav-text text-sm">Settings</span>
             </a>
@@ -83,6 +89,8 @@
     <header id="header" class="fixed inset-y-0 left-56 right-0 h-14 bg-white border-b border-slate-200 flex items-center justify-between px-3 md:px-6 no-print transition-all duration-200">
         <div class="flex items-center gap-2 md:gap-3 min-w-0">
             <button id="sidebar-toggle" type="button" class="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-600 shrink-0" title="Toggle sidebar">☰</button>
+            <button type="button" onclick="posGoBack()" class="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-600 shrink-0" title="Back">&larr;</button>
+            <a href="{{ route('home') }}" class="w-8 h-8 rounded-md hover:bg-slate-100 flex items-center justify-center text-slate-600 shrink-0" title="Home">🏠</a>
             <h1 class="text-base font-semibold text-slate-700 truncate">@yield('title', 'Register')</h1>
             @if(request()->attributes->get('posProfile'))
             <span class="hidden md:inline text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 truncate">{{ request()->attributes->get('posProfile')->name }}</span>
@@ -128,8 +136,36 @@
 })();
 </script>
 @else
-    {{-- Profile not selected: show the picker without the sidebar --}}
-    <main class="min-h-screen">
+    {{-- No profile selected (profile picker, settings, users, sync): a slim top bar
+         so these pages are never dead ends. Setup steps stay distraction-free. --}}
+    @unless(request()->routeIs('setup.*'))
+    <header id="topbar" class="no-print sticky top-0 z-30 h-14 bg-white border-b border-slate-200 flex items-center justify-between gap-2 px-3 md:px-6">
+        <div class="flex items-center gap-2 md:gap-3 min-w-0">
+            <a href="{{ route('home') }}" class="flex items-center gap-2 shrink-0" title="Home">
+                <span class="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center font-bold text-lg">F</span>
+                <span class="font-semibold text-slate-800 text-sm hidden sm:inline">ForkPOS</span>
+            </a>
+            <nav class="flex items-center gap-1 text-sm text-slate-600 min-w-0 overflow-x-auto">
+                <a href="{{ route('home') }}" class="px-3 py-1.5 rounded-md hover:bg-slate-100 {{ request()->routeIs('home') ? 'bg-slate-100 text-slate-900' : '' }}">Home</a>
+                @if(auth()->user()->isManager())
+                <a href="{{ route('sync.index') }}" class="px-3 py-1.5 rounded-md hover:bg-slate-100 {{ request()->routeIs('sync.*') ? 'bg-slate-100 text-slate-900' : '' }}">Sync</a>
+                <a href="{{ route('users.index') }}" class="px-3 py-1.5 rounded-md hover:bg-slate-100 {{ request()->routeIs('users.*') ? 'bg-slate-100 text-slate-900' : '' }}">Users</a>
+                <a href="{{ route('settings.edit') }}" class="px-3 py-1.5 rounded-md hover:bg-slate-100 {{ request()->routeIs('settings.*') ? 'bg-slate-100 text-slate-900' : '' }}">Settings</a>
+                @endif
+            </nav>
+        </div>
+        <div class="flex items-center gap-2 md:gap-3 text-sm text-slate-500 shrink-0">
+            <span class="font-medium text-slate-700 truncate hidden sm:inline">{{ auth()->user()->name }}</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">{{ ucfirst(auth()->user()->role) }}</span>
+            <form method="POST" action="{{ route('logout') }}">
+                @csrf
+                <button type="submit" class="px-3 py-1.5 rounded-md hover:bg-slate-100 text-slate-600" title="Logout">Logout</button>
+            </form>
+        </div>
+    </header>
+    @endunless
+
+    <main class="min-h-[calc(100vh-3.5rem)]">
         @yield('content')
     </main>
 @endif
@@ -140,5 +176,21 @@
 @endauth
 
 @yield('scripts')
+<script>
+    // Global "Back" control: same-origin history only, otherwise fall back to Home.
+    function posGoBack() {
+        let sameOrigin = false;
+        try {
+            sameOrigin = !!document.referrer && new URL(document.referrer).origin === window.location.origin;
+        } catch (e) {
+            sameOrigin = false;
+        }
+        if (sameOrigin && window.history.length > 1) {
+            window.history.back();
+            return;
+        }
+        window.location.href = @json(route('home'));
+    }
+</script>
 </body>
 </html>

@@ -2,9 +2,9 @@
 @section('title', 'Register')
 
 @php
-    $currency = $setting->currency_symbol ?? '$';
-    $precision = $setting->currency_precision ?? 2;
-    $priceList = $profile->selling_price_list ?: 'Standard Selling';
+    $currency = $profile->effectiveCurrencySymbol($setting);
+    $precision = $profile->effectivePrecision($setting);
+    $priceList = $profile->selling_price_list;
 @endphp
 
 @section('content')
@@ -130,7 +130,7 @@ const PAYMENT_MODES = @json($paymentModesPayload);
 const SEED_ITEMS = @json($seedItemsPayload);
 const GROUPS = @json($groupsPayload);
 
-let cart = []; // [{item_id, item_code, item_name, uom, qty, rate, price_list_rate, discount_percentage, tax_id, stock_qty}]
+let cart = []; // [{item_id, item_code, item_name, uom, qty, rate, price_list_rate, allow_discount, discount_type, discount_value, tax_id, stock_qty}]
 
 // ---- Render category tiles ---------------------------------------------
 (function renderCategories() {
@@ -251,12 +251,45 @@ function addToCart(itemId) {
             qty: 1,
             price_list_rate: item.rate,
             rate: item.rate,
-            discount_percentage: 0,
+            allow_discount: !!item.allow_discount,
+            discount_type: 'percentage',
+            discount_value: 0,
             tax_id: DEFAULT_TAX?.id ?? null,
             stock_qty: item.stock_qty,
         });
     }
     renderCart();
+}
+
+// Line maths, shared by the cart renderer, the totals and the checkout payload.
+function lineGross(c) { return Math.max(0, (c.rate || 0) * c.qty); }
+function lineDiscount(c) {
+    const gross = lineGross(c);
+    if (!c.allow_discount || !c.discount_value) return 0;
+    if (c.discount_type === 'amount') return Math.min(gross, c.discount_value);
+    return Math.min(gross, gross * c.discount_value / 100);
+}
+function lineNet(c) { return Math.max(0, lineGross(c) - lineDiscount(c)); }
+
+// Price / discount editors: rendered only when the ERPNext POS profile allows
+// them (allow_rate_change / allow_discount_change) and, for discounts, only
+// when the item itself is discountable.
+function priceDiscountControls(c, i) {
+    const rateControl = PROFILE.allow_rate_change ? `
+        <label class="text-[10px] text-slate-400">Price</label>
+        <input type="number" min="0" step="0.01" value="${c.rate}" data-line-rate="${i}" title="Unit price"
+               class="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs no-spin">
+    ` : '';
+    const discountControl = (PROFILE.allow_discount_change && c.allow_discount) ? `
+        <select data-line-disc-type="${i}" title="Discount type" class="rounded border border-slate-200 px-1 py-0.5 text-xs bg-white">
+            <option value="percentage" ${c.discount_type === 'percentage' ? 'selected' : ''}>%</option>
+            <option value="amount" ${c.discount_type === 'amount' ? 'selected' : ''}>Amt</option>
+        </select>
+        <input type="number" min="0" step="0.01" value="${c.discount_value || ''}" placeholder="0" data-line-disc="${i}" title="Line discount"
+               class="w-16 rounded border border-slate-200 px-1 py-0.5 text-xs no-spin">
+    ` : '';
+    if (!rateControl && !discountControl) return '';
+    return `<div class="flex items-center gap-1 pl-1">${rateControl}${discountControl}</div>`;
 }
 
 function renderCart() {
@@ -266,25 +299,61 @@ function renderCart() {
         document.getElementById('checkout').disabled = true;
     } else {
         el.innerHTML = cart.map((c, i) => `
-            <div class="flex items-center gap-2 py-2 border-b border-slate-50">
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-slate-700 truncate">${c.item_name}</p>
-                    <p class="text-xs text-slate-500">${CURRENCY}${c.rate.toFixed(PRECISION)} / ${c.uom}
-                        ${c.discount_percentage > 0 ? ` · -${c.discount_percentage}%` : ''}
-                    </p>
+            <div class="py-2 border-b border-slate-50">
+                <div class="flex items-center gap-2">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-700 truncate">${c.item_name}</p>
+                        <p class="text-xs text-slate-500">${CURRENCY}${c.rate.toFixed(PRECISION)} / ${c.uom}
+                            ${c.discount_value > 0 ? ` -${c.discount_type === 'percentage' ? c.discount_value + '%' : CURRENCY + c.discount_value}` : ''}
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button data-qty="${i}" data-delta="-1" class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">-</button>
+                        <input type="number" step="0.001" value="${c.qty}" data-qty-input="${i}" class="w-14 text-center rounded border border-slate-200 px-1 py-0.5 text-sm no-spin">
+                        <button data-qty="${i}" data-delta="1" class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">+</button>
+                    </div>
+                    <span data-line-amount="${i}" class="w-20 text-right text-sm font-medium text-slate-700">${CURRENCY}${lineNet(c).toFixed(PRECISION)}</span>
+                    <button data-remove="${i}" class="text-slate-300 hover:text-red-500">x</button>
                 </div>
-                <div class="flex items-center gap-1">
-                    <button data-qty="${i}" data-delta="-1" class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">−</button>
-                    <input type="number" step="0.001" value="${c.qty}" data-qty-input="${i}" class="w-14 text-center rounded border border-slate-200 px-1 py-0.5 text-sm no-spin">
-                    <button data-qty="${i}" data-delta="1" class="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 text-slate-600">+</button>
-                </div>
-                <span class="w-20 text-right text-sm font-medium text-slate-700">${CURRENCY}${(c.rate * c.qty).toFixed(PRECISION)}</span>
-                <button data-remove="${i}" class="text-slate-300 hover:text-red-500">×</button>
+                ${priceDiscountControls(c, i)}
             </div>
         `).join('');
         el.querySelectorAll('[data-qty]').forEach(b => b.addEventListener('click', () => changeQty(parseInt(b.dataset.qty), parseInt(b.dataset.delta))));
         el.querySelectorAll('[data-qty-input]').forEach(inp => inp.addEventListener('change', () => setQty(parseInt(inp.dataset.qtyInput), parseFloat(inp.value) || 0)));
         el.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => { cart.splice(parseInt(b.dataset.remove), 1); renderCart(); }));
+        el.querySelectorAll('[data-line-rate]').forEach(inp => inp.addEventListener('input', () => {
+            const idx = parseInt(inp.dataset.lineRate);
+            const val = parseFloat(inp.value);
+            cart[idx].rate = (isNaN(val) || val < 0) ? 0 : val;
+            recalcTotals();
+        }));
+        // Re-render once editing settles so the line caption shows the new price / discount.
+        el.querySelectorAll('[data-line-rate], [data-line-disc]').forEach(inp => inp.addEventListener('change', () => renderCart()));
+        el.querySelectorAll('[data-line-disc-type]').forEach(sel => sel.addEventListener('change', () => {
+            const idx = parseInt(sel.dataset.lineDiscType);
+            cart[idx].discount_type = sel.value;
+            cart[idx].discount_value = 0;
+            renderCart();
+        }));
+        el.querySelectorAll('[data-line-disc]').forEach(inp => inp.addEventListener('input', () => {
+            const idx = parseInt(inp.dataset.lineDisc);
+            let val = parseFloat(inp.value) || 0;
+            if (val < 0) val = 0;
+            const line = cart[idx];
+            if (PROFILE.max_discount_percentage > 0) {
+                const gross = lineGross(line);
+                const cap = line.discount_type === 'percentage'
+                    ? PROFILE.max_discount_percentage
+                    : gross * PROFILE.max_discount_percentage / 100;
+                if (val > cap) {
+                    val = cap;
+                    inp.value = val;
+                    flash('Maximum discount is ' + PROFILE.max_discount_percentage + '%', 'error');
+                }
+            }
+            line.discount_value = val;
+            recalcTotals();
+        }));
         document.getElementById('checkout').disabled = false;
     }
     recalcTotals();
@@ -304,12 +373,12 @@ document.getElementById('clear-cart').addEventListener('click', () => { if (conf
 // ---- Totals ------------------------------------------------------------
 function recalcTotals() {
     let subtotal = 0, tax = 0, discount = 0;
-    cart.forEach(c => {
-        const lineAmount = c.price_list_rate * c.qty;
-        const lineDisc = c.discount_percentage > 0 ? lineAmount * c.discount_percentage / 100 : 0;
-        const netLine = lineAmount - lineDisc;
+    cart.forEach((c, i) => {
+        const netLine = lineNet(c);
         subtotal += netLine;
-        discount += lineDisc;
+        discount += lineDiscount(c);
+        const lineEl = document.querySelector(`[data-line-amount="${i}"]`);
+        if (lineEl) lineEl.textContent = CURRENCY + netLine.toFixed(PRECISION);
         if (DEFAULT_TAX && c.tax_id) {
             const rate = DEFAULT_TAX.rate;
             if (DEFAULT_TAX.included_in_price) {
@@ -329,7 +398,7 @@ function recalcTotals() {
 // ---- Payments ----------------------------------------------------------
 function defaultPaymentRow() {
     const def = PAYMENT_MODES.find(p => p.is_default) ?? PAYMENT_MODES[0];
-    return { mode_of_payment: def?.mode_of_payment ?? 'Cash', amount: 0 };
+    return { mode_of_payment: def?.mode_of_payment ?? '', amount: 0 };
 }
 let payments = [defaultPaymentRow()];
 
@@ -371,7 +440,7 @@ renderPayments();
 // Pre-fill cash payment with the grand total when items are added.
 const observer = new MutationObserver(() => {
     const grand = parseFloat(document.getElementById('grand').textContent.replace(/[^0-9.]/g, '')) || 0;
-    if (payments.length === 1 && payments[0].mode_of_payment === (PAYMENT_MODES.find(p=>p.is_default)?.mode_of_payment ?? 'Cash')) {
+    if (payments.length === 1 && payments[0].mode_of_payment === (PAYMENT_MODES.find(p=>p.is_default)?.mode_of_payment ?? PAYMENT_MODES[0]?.mode_of_payment)) {
         payments[0].amount = grand;
         renderPayments();
     }
@@ -419,7 +488,8 @@ document.getElementById('checkout').addEventListener('click', () => {
             qty: c.qty,
             uom: c.uom,
             rate: c.rate,
-            discount_percentage: c.discount_percentage || null,
+            discount_percentage: c.discount_type === 'percentage' && c.discount_value > 0 ? c.discount_value : null,
+            discount_amount: c.discount_type === 'amount' && c.discount_value > 0 ? c.discount_value : null,
             tax_id: c.tax_id,
         })),
         payments: payments.filter(p => p.amount > 0).map(p => ({
@@ -431,25 +501,37 @@ document.getElementById('checkout').addEventListener('click', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}', 'Accept': 'application/json' },
         body: JSON.stringify(payload),
-    }).then(r => r.json()).then(res => {
-        if (res.errors) {
-            const msgs = Object.values(res.errors).flat().join('\n');
-            alert('Checkout failed:\n' + msgs);
+    }).then(async r => {
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            const msgs = res.errors ? Object.values(res.errors).flat().join(' ') : (res.message || ('HTTP ' + r.status));
+            flash(msgs, 'error');
             return;
         }
         const id = res.data?.invoice_id;
         if (id) {
             window.location.href = `/pos/receipt/${id}?fresh=1`;
         } else {
-            alert('Unexpected response: ' + JSON.stringify(res));
+            flash('Unexpected response: ' + JSON.stringify(res), 'error');
         }
-    }).catch(err => alert('Network error: ' + err));
+    }).catch(err => flash('Network error: ' + err.message, 'error'));
 });
 
 // ---- Flash helper ------------------------------------------------------
+let flashTimer;
 function flash(msg, type='info') {
-    // Minimal — the page renders flash on next navigation anyway.
-    console.log('[' + type + ']', msg);
+    let el = document.getElementById('pos-flash');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'pos-flash';
+        document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md px-4 py-2 rounded-lg shadow-lg text-sm font-medium transition-opacity duration-300 '
+        + (type === 'error' ? 'bg-red-600 text-white' : 'bg-slate-800 text-white');
+    el.style.opacity = '1';
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { el.style.opacity = '0'; }, 3500);
 }
 </script>
 @endsection

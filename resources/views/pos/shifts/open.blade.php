@@ -31,7 +31,8 @@
         <div id="balances" class="space-y-2">
             <p class="text-sm font-medium text-slate-700">Opening balances</p>
             <p class="text-xs text-slate-500 -mt-1">Count the cash and floats in the till before starting. Leave 0 if the drawer is empty.</p>
-            @foreach ($profiles->first()['payments'] ?? [] as $pay)
+            @php($activeProfile = $profiles->firstWhere('id', (int) $selectedProfileId) ?? $profiles->first())
+            @foreach ($activeProfile['payments'] ?? [] as $pay)
             <div class="flex items-center gap-3">
                 <label class="w-40 text-sm text-slate-600">{{ $pay['mode_of_payment'] }}</label>
                 <input type="number" step="0.01" min="0" name="balances[{{ $loop->index }}][amount]" value="0" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 no-spin" placeholder="0.00">

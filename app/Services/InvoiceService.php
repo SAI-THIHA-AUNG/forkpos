@@ -6,14 +6,14 @@ use App\Models\Coupon;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
-use App\Models\InvoicePayment;
-use App\Models\InvoiceTax;
 use App\Models\Item;
 use App\Models\PosOpeningShift;
 use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\Tax;
+use App\Models\Uom;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -58,7 +58,7 @@ class InvoiceService
             $attempts++;
             try {
                 return $this->createWithinTransaction($data, $cashier);
-            } catch (\Illuminate\Database\QueryException $e) {
+            } catch (QueryException $e) {
                 if ($attempts >= 3 || ! in_array($e->errorInfo[1] ?? null, [19, 1062], true)) {
                     throw $e;
                 }
@@ -72,7 +72,12 @@ class InvoiceService
             $setting = Setting::current();
             /** @var PosProfile $profile */
             $profile = PosProfile::where('disabled', false)->findOrFail($data['pos_profile_id']);
-            $currency = $profile->currency ?: $setting->currency;
+            $currency = $profile->effectiveCurrency($setting);
+            if ($currency === '') {
+                throw ValidationException::withMessages([
+                    'pos_profile_id' => ["POS profile '{$profile->name}' has no currency. Sync it from ERPNext or set one."],
+                ]);
+            }
 
             // Shift validation (POS Awesome: every invoice belongs to an open shift).
             $shift = null;
@@ -142,27 +147,21 @@ class InvoiceService
                 $uomName = $line['uom'] ?? ($item->salesUom?->uom_name ?? $item->stockUom?->uom_name ?? 'Unit');
                 $conversion = $this->conversionFactor($item, $uomName);
 
-                $priceListRate = isset($line['price_list_rate'])
-                    ? (float) $line['price_list_rate']
-                    : $item->effectiveRate($profile->selling_price_list, $customer->id);
+                // The list price always comes from the synced price list — a
+                // client-sent price_list_rate is ignored so a tampered payload
+                // cannot invent one.
+                $listRate = $item->effectiveRate($profile->selling_price_list, $customer->id);
+                $baseRate = $listRate;
 
                 // Rate overrides are gated by the profile (allow_rate_change).
-                if (isset($line['rate']) && $profile->allow_rate_change) {
-                    $priceListRate = (float) $line['rate'];
-                }
-
-                $discountPercentage = (float) ($line['discount_percentage'] ?? 0);
-                $discountAmount = (float) ($line['discount_amount'] ?? 0);
-
-                if ($discountPercentage > 0 && ! $item->allow_discount) {
-                    throw ValidationException::withMessages([
-                        'items' => ["Discount is not allowed on item {$item->item_code}."],
-                    ]);
-                }
-                if ($profile->max_discount_percentage > 0 && $discountPercentage > $profile->max_discount_percentage) {
-                    throw ValidationException::withMessages([
-                        'items' => ["Discount {$discountPercentage}% exceeds the profile limit of {$profile->max_discount_percentage}%."],
-                    ]);
+                $requestedRate = isset($line['rate']) ? (float) $line['rate'] : null;
+                if ($requestedRate !== null && abs($requestedRate - $listRate) > 0.0001) {
+                    if (! $profile->allow_rate_change) {
+                        throw ValidationException::withMessages([
+                            'items' => ["Changing the price is disabled for POS profile '{$profile->name}'."],
+                        ]);
+                    }
+                    $baseRate = $requestedRate;
                 }
 
                 $qty = (float) $line['qty'];
@@ -170,15 +169,45 @@ class InvoiceService
                     $qty = -abs($qty);
                 }
 
-                $rate = $priceListRate;
-                if ($discountPercentage > 0) {
-                    $rate = $priceListRate * (1 - $discountPercentage / 100);
+                $discountPercentage = (float) ($line['discount_percentage'] ?? 0);
+                $discountAmount = (float) ($line['discount_amount'] ?? 0);
+                $hasDiscount = $discountPercentage > 0 || $discountAmount > 0;
+
+                if ($hasDiscount && ! $profile->allow_discount_change) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Discounts are disabled for POS profile '{$profile->name}'."],
+                    ]);
                 }
-                $lineDiscount = max(0.0, ($priceListRate - $rate) * abs($qty)); // line-level discount total
+                if ($hasDiscount && ! $item->allow_discount) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Discount is not allowed on item {$item->item_code}."],
+                    ]);
+                }
+                if ($discountPercentage > 0 && $profile->max_discount_percentage > 0
+                    && $discountPercentage > $profile->max_discount_percentage) {
+                    throw ValidationException::withMessages([
+                        'items' => ["Discount {$discountPercentage}% exceeds the profile limit of {$profile->max_discount_percentage}%."],
+                    ]);
+                }
+                if ($discountAmount > 0 && $profile->max_discount_percentage > 0) {
+                    $lineValue = $baseRate * abs($qty);
+                    $effectivePercentage = $lineValue > 0 ? ($discountAmount / $lineValue) * 100 : 0.0;
+                    if ($effectivePercentage > $profile->max_discount_percentage + 0.0001) {
+                        throw ValidationException::withMessages([
+                            'items' => [sprintf('Discount %.2f%% exceeds the profile limit of %.2f%%.', $effectivePercentage, $profile->max_discount_percentage)],
+                        ]);
+                    }
+                }
+
+                $rate = $baseRate;
+                if ($discountPercentage > 0) {
+                    $rate = $baseRate * (1 - $discountPercentage / 100);
+                }
+                $lineDiscount = max(0.0, ($baseRate - $rate) * abs($qty)); // line-level discount total
                 if ($discountAmount > 0) {
                     // `discount_amount` is a line-level flat discount, capped at the line value.
-                    $lineDiscount = min($discountAmount, $priceListRate * abs($qty));
-                    $rate = ($priceListRate * abs($qty) - $lineDiscount) / max(0.000001, abs($qty));
+                    $lineDiscount = min($discountAmount, $baseRate * abs($qty));
+                    $rate = ($baseRate * abs($qty) - $lineDiscount) / max(0.000001, abs($qty));
                 }
 
                 $amount = round($qty * $rate, 6); // negative for returns
@@ -210,7 +239,7 @@ class InvoiceService
                     'uom' => $uomName,
                     'conversion_factor' => $conversion,
                     'qty' => $qty,
-                    'price_list_rate' => round($priceListRate, 6),
+                    'price_list_rate' => round($listRate, 6),
                     'rate' => round($rate, 6),
                     'discount_percentage' => $discountPercentage,
                     'discount_amount' => round($lineDiscount, 6),
@@ -401,7 +430,7 @@ class InvoiceService
 
     protected function conversionFactor(Item $item, string $uomName): float
     {
-        $uom = \App\Models\Uom::where('uom_name', $uomName)->first();
+        $uom = Uom::where('uom_name', $uomName)->first();
         if (! $uom) {
             return 1.0;
         }

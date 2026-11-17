@@ -10,9 +10,9 @@ return new class extends Migration
     {
         Schema::create('settings', function (Blueprint $table) {
             $table->id();
-            $table->string('company_name')->default('My Company');
-            $table->string('currency', 8)->default('USD');
-            $table->string('currency_symbol', 8)->default('$');
+            $table->string('company_name')->nullable();
+            $table->string('currency', 8)->nullable();
+            $table->string('currency_symbol', 8)->nullable();
             $table->unsignedTinyInteger('currency_precision')->default(2);
             $table->boolean('tax_inclusive_prices')->default(true);
             $table->boolean('allow_negative_stock')->default(false);

@@ -2,7 +2,7 @@
 @section('title', "Return {$invoice->invoice_no}")
 
 @php
-    $currency = $invoice->currency ?? '$';
+    $currency = \App\Models\PosProfile::symbolFor($invoice->currency);
     $precision = 2;
 @endphp
 

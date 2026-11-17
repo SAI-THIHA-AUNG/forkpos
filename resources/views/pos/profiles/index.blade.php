@@ -9,7 +9,14 @@
                 <p class="text-sm text-slate-500">Welcome back,</p>
                 <h1 class="text-2xl font-bold text-slate-800">{{ auth()->user()->name }}</h1>
             </div>
-            <form method="POST" action="{{ route('logout') }}">@csrf <button class="text-sm text-slate-500 hover:text-slate-700">Sign out</button></form>
+            <div class="flex items-center gap-4 text-sm text-slate-500">
+                @if(auth()->user()->isManager())
+                <a href="{{ route('settings.edit') }}" class="hover:text-slate-700">Settings</a>
+                <a href="{{ route('users.index') }}" class="hover:text-slate-700">Users</a>
+                <a href="{{ route('sync.index') }}" class="hover:text-slate-700">Sync</a>
+                @endif
+                <form method="POST" action="{{ route('logout') }}">@csrf <button class="hover:text-slate-700">Sign out</button></form>
+            </div>
         </div>
 
         @include('pos.partials.flash')
@@ -31,7 +38,7 @@
         @if ($profiles->isEmpty())
         <div class="p-8 rounded-xl bg-white border border-slate-200 text-center">
             <p class="text-slate-500">No POS profiles are assigned to you.</p>
-            <p class="text-sm text-slate-400 mt-2">Ask a manager to attach you to a profile, or seed the demo data with <code>php artisan migrate:fresh --seed</code>.</p>
+            <p class="text-sm text-slate-400 mt-2">Ask a manager to add you to a POS profile in ERPNext (Applicable for Users), then run a profile sync.</p>
         </div>
         @else
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -2,12 +2,13 @@
 @section('title', "Invoice {$invoice->invoice_no}")
 
 @php
-    $currency = $invoice->currency ?? '$';
+    $currency = \App\Models\PosProfile::symbolFor($invoice->currency);
     $precision = 2;
 @endphp
 
 @section('content')
 <div class="max-w-3xl mx-auto">
+    <a href="{{ route('invoices.index') }}" class="inline-block text-sm text-slate-500 hover:text-slate-700 mb-3">&larr; All sales</a>
     <div class="flex items-center justify-between mb-4">
         <div>
             <h1 class="text-xl font-bold text-slate-800">{{ $invoice->invoice_no }}</h1>

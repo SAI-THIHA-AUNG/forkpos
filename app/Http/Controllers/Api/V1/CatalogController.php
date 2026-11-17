@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\Customer;
 use App\Models\Item;
+use App\Models\ItemBarcode;
 use App\Models\ItemGroup;
+use App\Models\ItemPrice;
 use App\Models\Setting;
 use App\Models\Uom;
 use App\Models\Warehouse;
@@ -43,7 +44,7 @@ class CatalogController extends Controller
             ->limit($pageLength)
             ->get();
 
-        $priceList = $request->query('price_list', 'Standard Selling');
+        $priceList = $request->query('price_list');
         $warehouseId = $request->query('warehouse_id') ? (int) $request->query('warehouse_id') : null;
         $withStock = $request->query('with_stock', true) !== 'false';
 
@@ -71,7 +72,7 @@ class CatalogController extends Controller
             ->available()
             ->findOrFail($id);
 
-        $priceList = $request->query('price_list', 'Standard Selling');
+        $priceList = $request->query('price_list');
         $warehouseId = $request->query('warehouse_id') ? (int) $request->query('warehouse_id') : null;
         $stockMap = $stock->balancesFor([$item->id], $warehouseId);
 
@@ -83,14 +84,14 @@ class CatalogController extends Controller
      */
     public function itemByBarcode(Request $request, string $code, StockService $stock)
     {
-        $barcode = \App\Models\ItemBarcode::with('item')
+        $barcode = ItemBarcode::with('item')
             ->where('barcode', $code)
             ->firstOrFail();
         $item = $barcode->item;
         abort_if($item === null || $item->disabled || $item->trashed(), 404, 'Item not found or disabled.');
         $item->load(['group', 'stockUom', 'salesUom', 'barcodes', 'prices']);
 
-        $priceList = $request->query('price_list', 'Standard Selling');
+        $priceList = $request->query('price_list');
         $warehouseId = $request->query('warehouse_id') ? (int) $request->query('warehouse_id') : null;
         $stockMap = $stock->balancesFor([$item->id], $warehouseId);
 
@@ -132,13 +133,12 @@ class CatalogController extends Controller
      */
     public function priceLists()
     {
-        $lists = \App\Models\ItemPrice::distinct()->orderBy('price_list')->pluck('price_list')
-            ->push('Standard Selling')->unique()->values();
+        $lists = ItemPrice::distinct()->orderBy('price_list')->pluck('price_list')->values();
 
         return response()->json(['data' => $lists]);
     }
 
-    protected function itemPayload(Item $item, string $priceList, array $stockMap, bool $detailed = false): array
+    protected function itemPayload(Item $item, ?string $priceList, array $stockMap, bool $detailed = false): array
     {
         $payload = [
             'id' => $item->id,
@@ -164,7 +164,7 @@ class CatalogController extends Controller
 
         if ($detailed) {
             $payload['uom_conversions'] = $item->uomConversions->map(fn ($c) => [
-                'uom' => \App\Models\Uom::find($c->uom_id)?->uom_name,
+                'uom' => Uom::find($c->uom_id)?->uom_name,
                 'conversion_factor' => (float) $c->conversion_factor,
             ])->filter()->values();
             $payload['prices'] = $item->prices->map(fn ($p) => [

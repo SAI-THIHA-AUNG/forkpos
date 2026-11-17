@@ -3,6 +3,7 @@
 
 @section('content')
 <div class="max-w-4xl mx-auto">
+    <a href="{{ route('customers.index') }}" class="inline-block text-sm text-slate-500 hover:text-slate-700 mb-3">&larr; All customers</a>
     <div class="flex items-center justify-between mb-4">
         <div>
             <h1 class="text-xl font-bold text-slate-800">{{ $customer->customer_name }}</h1>

@@ -36,7 +36,7 @@ class SyncService
      * @param  array  $entities  list of entity keys to sync
      * @return array{results: array<string, array{pulled: int, upserted: int}>, errors: array<int, string>}
      */
-    public function pullMasters(array $entities, int $limit = 500): array
+    public function pullMasters(array $entities, int $limit = 500, ?SyncContext $ctx = null): array
     {
         $results = [];
         $errors = [];
@@ -50,7 +50,7 @@ class SyncService
                 continue;
             }
             try {
-                $results[$entity] = $this->{'pull'.Str::studly($entity)}($limit);
+                $results[$entity] = $this->{'pull'.Str::studly($entity)}($limit, $ctx);
             } catch (\Throwable $e) {
                 $errors[] = "{$entity}: ".$e->getMessage();
             }
@@ -62,6 +62,32 @@ class SyncService
         }
 
         return ['results' => $results, 'errors' => $errors];
+    }
+
+    /**
+     * `modified > cursor` filter for delta pulls (empty on a full pull).
+     *
+     * @return list<array>
+     */
+    protected function sinceFilter(?SyncContext $ctx, string $entity): array
+    {
+        $since = $ctx?->since($entity);
+
+        return $since ? [['modified', '>', $since]] : [];
+    }
+
+    /** Highest `modified` value in a page of rows — the next delta cursor. */
+    protected function maxModified(array $rows): ?string
+    {
+        $max = null;
+        foreach ($rows as $row) {
+            $m = $row['modified'] ?? null;
+            if ($m && ($max === null || $m > $max)) {
+                $max = $m;
+            }
+        }
+
+        return $max;
     }
 
     public function pullUom(int $limit): array
@@ -90,11 +116,16 @@ class SyncService
         return ['pulled' => count($rows), 'upserted' => $count];
     }
 
-    public function pullWarehouse(int $limit): array
+    public function pullWarehouse(int $limit, ?SyncContext $ctx = null): array
     {
         $company = $this->client->company();
         $filters = [['disabled', '=', 0]];
-        if ($company) {
+        if ($ctx) {
+            if (! $ctx->warehouse) {
+                return ['pulled' => 0, 'upserted' => 0];
+            }
+            $filters[] = ['name', '=', $ctx->warehouse];
+        } elseif ($company) {
             $filters[] = ['company', '=', $company];
         }
         $rows = $this->client->list('Warehouse', ['name', 'is_group', 'company'], $filters, $limit);
@@ -135,14 +166,19 @@ class SyncService
         return ['pulled' => count($rows), 'upserted' => $count];
     }
 
-    public function pullTax(int $limit): array
+    public function pullTax(int $limit, ?SyncContext $ctx = null): array
     {
         $company = $this->client->company();
         $filters = [['disabled', '=', 0]];
-        if ($company) {
+        if ($ctx) {
+            if (! $ctx->taxTemplate) {
+                return ['pulled' => 0, 'upserted' => 0];
+            }
+            $filters[] = ['name', '=', $ctx->taxTemplate];
+        } elseif ($company) {
             $filters[] = ['company', '=', $company];
         }
-        $rows = $this->client->list('Sales Taxes and Charges Template', ['name', 'title', 'is_default'], $filters, min($limit, 50));
+        $rows = $this->client->list('Sales Taxes and Charges Template', ['name', 'title', 'is_default'], $filters, $ctx ? 50 : min($limit, 50));
         $count = 0;
         foreach ($rows as $row) {
             // Child rows (actual rates) need a per-doc fetch — keep the batch small.
@@ -168,14 +204,16 @@ class SyncService
         return ['pulled' => count($rows), 'upserted' => $count];
     }
 
-    public function pullItem(int $limit): array
+    public function pullItem(int $limit, ?SyncContext $ctx = null): array
     {
-        $company = $this->client->company();
         $fields = ['name', 'item_code', 'item_name', 'item_group', 'description', 'image',
-            'stock_uom', 'sales_uom', 'is_stock_item', 'standard_rate', 'disabled', 'brand', 'has_variants'];
+            'stock_uom', 'sales_uom', 'is_stock_item', 'standard_rate', 'disabled', 'brand', 'has_variants', 'modified'];
         // Note: Item is not company-scoped in ERPNext — do not filter by company.
-        $filters = [['is_sales_item', '=', 1]];
-        $rows = $this->client->list('Item', $fields, $filters, $limit);
+        $filters = array_merge([['is_sales_item', '=', 1]], $this->sinceFilter($ctx, 'item'));
+        if ($ctx && $ctx->itemGroups) {
+            $filters[] = ['item_group', 'in', $ctx->itemGroups];
+        }
+        $rows = $this->client->listAll('Item', $fields, $filters, $limit, 'modified asc');
         $count = 0;
         foreach ($rows as $row) {
             $group = $row['item_group'] ? ItemGroup::firstOrCreate(['name' => $row['item_group']]) : null;
@@ -202,20 +240,22 @@ class SyncService
             $count++;
         }
 
-        // Purge demo items (no ERPNext link) so the register only shows
-        // items that can actually be sold + pushed to ERPNext.
-        if ($count > 0) {
-            Item::whereNull('erpnext_id')->forceDelete();
-        }
-
-        return ['pulled' => count($rows), 'upserted' => $count];
+        return ['pulled' => count($rows), 'upserted' => $count, 'max_modified' => $this->maxModified($rows)];
     }
 
-    public function pullItemPrice(int $limit): array
+    public function pullItemPrice(int $limit, ?SyncContext $ctx = null): array
     {
-        $priceList = $this->client->priceList();
-        $fields = ['name', 'item_code', 'price_list', 'price_list_rate', 'currency', 'valid_from', 'valid_upto', 'customer', 'uom'];
-        $rows = $this->client->list('Item Price', $fields, [['price_list', '=', $priceList]], $limit);
+        $priceList = $ctx ? (string) $ctx->priceList : $this->client->priceList();
+        if ($priceList === '' && ! $ctx) {
+            // Legacy full sync without an explicit list: use the profiles' price lists.
+            $priceList = (string) PosProfile::whereNotNull('selling_price_list')->value('selling_price_list');
+        }
+        if ($priceList === '') {
+            throw new RuntimeException('No price list to sync: the POS profile has no selling price list.');
+        }
+        $fields = ['name', 'item_code', 'price_list', 'price_list_rate', 'currency', 'valid_from', 'valid_upto', 'customer', 'uom', 'modified'];
+        $filters = array_merge([['price_list', '=', $priceList]], $this->sinceFilter($ctx, 'item_price'));
+        $rows = $this->client->listAll('Item Price', $fields, $filters, $limit, 'modified asc');
 
         $itemsByCode = Item::pluck('id', 'item_code');
         $customersByErp = Customer::whereNotNull('erpnext_id')->pluck('id', 'erpnext_id');
@@ -226,7 +266,9 @@ class SyncService
             if (! $itemId) {
                 continue;
             }
-            $customerId = $row['customer'] ? ($customersByErp[$row['customer']] ?? null) : null;
+            // ERPNext omits empty optional fields from get_list responses.
+            $customerCode = $row['customer'] ?? null;
+            $customerId = $customerCode ? ($customersByErp[$customerCode] ?? null) : null;
             ItemPrice::updateOrCreate(
                 [
                     'item_id' => $itemId,
@@ -234,22 +276,26 @@ class SyncService
                     'customer_id' => $customerId,
                 ],
                 [
-                    'currency' => $row['currency'] ?? 'USD',
+                    'currency' => $row['currency'] ?? $ctx?->currency,
                     'price_list_rate' => (float) ($row['price_list_rate'] ?? 0),
-                    'valid_from' => $row['valid_from'] ?: null,
-                    'valid_to' => $row['valid_upto'] ?: null,
+                    'valid_from' => ($row['valid_from'] ?? null) ?: null,
+                    'valid_to' => ($row['valid_upto'] ?? null) ?: null,
                 ]
             );
             $count++;
         }
 
-        return ['pulled' => count($rows), 'upserted' => $count];
+        return ['pulled' => count($rows), 'upserted' => $count, 'max_modified' => $this->maxModified($rows)];
     }
 
-    public function pullCustomer(int $limit): array
+    public function pullCustomer(int $limit, ?SyncContext $ctx = null): array
     {
-        $fields = ['name', 'customer_name', 'customer_group', 'territory', 'email_id', 'mobile_no', 'disabled'];
-        $rows = $this->client->list('Customer', $fields, [['disabled', '=', 0]], $limit);
+        $fields = ['name', 'customer_name', 'customer_group', 'territory', 'email_id', 'mobile_no', 'disabled', 'modified'];
+        $filters = array_merge([['disabled', '=', 0]], $this->sinceFilter($ctx, 'customer'));
+        if ($ctx && $ctx->customerGroups) {
+            $filters[] = ['customer_group', 'in', $ctx->customerGroups];
+        }
+        $rows = $this->client->listAll('Customer', $fields, $filters, $limit, 'modified asc');
         $count = 0;
         foreach ($rows as $row) {
             $group = $row['customer_group'] ? CustomerGroup::firstOrCreate(['name' => $row['customer_group']]) : null;
@@ -275,25 +321,28 @@ class SyncService
             $count++;
         }
 
-        // Purge demo customers (no ERPNext link) — keep only synced ones.
-        // Skip customers that have invoices to avoid foreign key constraint violations
-        if ($count > 0) {
-            Customer::whereNull('erpnext_id')
-                ->where('is_walk_in', false)
-                ->whereDoesntHave('invoices')
-                ->forceDelete();
-        }
-
-        return ['pulled' => count($rows), 'upserted' => $count];
+        return ['pulled' => count($rows), 'upserted' => $count, 'max_modified' => $this->maxModified($rows)];
     }
 
-    public function pullStock(int $limit): array
+    public function pullStock(int $limit, ?SyncContext $ctx = null): array
     {
-        // Prefer the POS profile's warehouse (the one the register actually sells
-        // from). Fall back to any non-group warehouse that's been synced — but
-        // never to a group warehouse (e.g. "Finished Goods - M"), which holds
-        // no real Bin rows and would sync 0 stock for everything.
-        $warehouse = PosProfile::whereNotNull('warehouse_id')
+        $warehouse = null;
+        if ($ctx) {
+            // Profile-scoped run: sell-from warehouse of THIS profile, nothing else.
+            if (! $ctx->warehouse) {
+                throw new RuntimeException('The POS profile has no warehouse, so stock cannot be synced.');
+            }
+            $warehouse = Warehouse::where('erpnext_id', $ctx->warehouse)->where('is_group', false)->first();
+            if (! $warehouse) {
+                throw new RuntimeException("Warehouse '{$ctx->warehouse}' is not synced locally (or is a group warehouse).");
+            }
+        }
+
+        // Legacy full sync: prefer the POS profile's warehouse (the one the register
+        // actually sells from). Fall back to any non-group warehouse that's been
+        // synced — but never to a group warehouse (e.g. "Finished Goods - M"),
+        // which holds no real Bin rows and would sync 0 stock for everything.
+        $warehouse ??= PosProfile::whereNotNull('warehouse_id')
             ->with('warehouse')
             ->get()
             ->map(fn ($p) => $p->warehouse)
@@ -312,7 +361,7 @@ class SyncService
         }
 
         $fields = ['item_code', 'warehouse', 'actual_qty'];
-        $rows = $this->client->list('Bin', $fields, [['warehouse', '=', $warehouse->erpnext_id]], $limit);
+        $rows = $this->client->listAll('Bin', $fields, [['warehouse', '=', $warehouse->erpnext_id]], $limit);
         $itemsByCode = Item::pluck('id', 'item_code');
 
         $count = 0;
@@ -338,7 +387,7 @@ class SyncService
     {
         $query = Invoice::whereIn('sync_status', ['pending', 'failed'])
             ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->with(['items', 'payments', 'taxes', 'customer']);
+            ->with(['items', 'payments', 'taxes', 'customer', 'posProfile']);
         if ($invoiceIds) {
             $query->whereIn('id', $invoiceIds);
         }
@@ -369,27 +418,44 @@ class SyncService
             throw new RuntimeException("Customer '{$customer->customer_name}' has no ERPNext link. Sync customers first.");
         }
 
-        $warehouse = Warehouse::find($invoice->posProfile->warehouse_id);
+        // The invoice's own POS profile is authoritative for company, price
+        // list and warehouse — NOT the (possibly stale) global settings row.
+        $profile = $invoice->posProfile;
+        $profileDoc = $profile?->erpnextDoc() ?? [];
+        $company = $profile?->company ?: ($profileDoc['company'] ?? null) ?: $this->client->company();
+        $posProfile = $profile?->erpnext_id;
+        $priceList = $profile?->selling_price_list ?: $this->client->priceList();
+
+        $warehouse = $profile?->warehouse_id ? Warehouse::find($profile->warehouse_id) : null;
+        $warehouseName = $warehouse?->erpnext_id ?? ($profileDoc['warehouse'] ?? null);
+
         $items = [];
         foreach ($invoice->items as $line) {
             $item = Item::withTrashed()->find($line->item_id);
             if (! $item?->erpnext_id) {
                 throw new RuntimeException("Item '{$line->item_code}' has no ERPNext link. Sync items first.");
             }
+
+            // `rate` is already the final (discounted) unit rate and the line
+            // keeps the original list price, so push both and let ERPNext
+            // derive discount_amount. Do NOT send discount_percentage /
+            // discount_amount as well — that would apply the discount twice.
+            // `rate` is also kept as-is: when a tax is marked
+            // included_in_print_rate ERPNext expects the tax-inclusive rate.
             $items[] = array_filter([
                 'item_code' => $item->erpnext_id,
-                'qty' => $line->qty,
-                'rate' => $line->tax_included ? round($line->rate / (1 + $line->tax_rate / 100), 6) : $line->rate,
+                'qty' => (float) $line->qty,
+                'rate' => round((float) $line->rate, 6),
+                'price_list_rate' => round((float) ($line->price_list_rate ?: $line->rate), 6),
                 'uom' => $line->uom,
                 'conversion_factor' => $line->conversion_factor,
-                'discount_percentage' => $line->discount_percentage,
-                'warehouse' => $warehouse?->erpnext_id,
-            ], fn ($v) => $v !== null);
+                'warehouse' => $warehouseName,
+            ], fn ($v) => $v !== null && $v !== '');
         }
 
         $payments = $invoice->payments->map(fn ($p) => [
             'mode_of_payment' => $p->mode_of_payment,
-            'amount' => $p->amount,
+            'amount' => (float) $p->amount,
         ])->values()->all();
 
         $taxes = $invoice->taxes->map(fn ($t) => array_filter([
@@ -402,18 +468,19 @@ class SyncService
 
         $payload = array_filter([
             'customer' => $customer->erpnext_id,
-            'company' => $this->client->company(),
+            'company' => $company,
+            'pos_profile' => $posProfile,
             'is_pos' => 1,
             'update_stock' => 1,
             'set_posting_time' => 1,
             'posting_date' => $invoice->posting_date->toDateString(),
-            'currency' => $invoice->currency,
+            'currency' => $invoice->currency ?: ($profile?->currency ?? null),
+            'selling_price_list' => $priceList,
             'items' => $items,
             'payments' => $payments,
             'taxes' => $taxes,
-            'pos_total_paid' => $invoice->paid_amount,
             'remarks' => 'Synced from forkpos Laravel POS ('.$invoice->invoice_no.')',
-        ]);
+        ], fn ($v) => $v !== null && $v !== '' && $v !== []);
 
         $response = $this->client->create('Sales Invoice', $payload);
 

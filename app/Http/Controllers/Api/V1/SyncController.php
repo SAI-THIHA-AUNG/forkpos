@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\Item;
+use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\Warehouse;
 use App\Services\ErpNextClient;
+use App\Services\SyncContext;
 use App\Services\SyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -26,8 +28,7 @@ class SyncController extends Controller
     public function status()
     {
         $setting = Setting::current();
-        $configured = (bool) ($setting->erpnext_url && $setting->erpnext_api_key && $setting->erpnext_api_secret)
-            || config('services.erpnext.url');
+        $configured = $setting->erpnextEnabled();
 
         $reachable = null;
         $pingMessage = null;
@@ -60,9 +61,9 @@ class SyncController extends Controller
                 'configured' => $configured,
                 'reachable' => $reachable,
                 'ping' => $pingMessage,
-                'url' => $setting->erpnext_url ?: config('services.erpnext.url'),
-                'company' => $setting->erpnext_company ?: config('services.erpnext.company'),
-                'price_list' => $setting->erpnext_price_list ?: config('services.erpnext.price_list') ?: 'Standard Selling',
+                'url' => $setting->erpnext_url,
+                'company' => $setting->erpnext_company,
+                'price_list' => $setting->erpnext_price_list,
                 'last_synced_at' => $setting->last_synced_at?->toDateTimeString(),
                 'pending_invoices' => $invoiceCounts->pending ?? 0,
                 'failed_invoices' => $invoiceCounts->failed ?? 0,
@@ -88,6 +89,7 @@ class SyncController extends Controller
 
         $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
         $data = $request->validate([
+            'pos_profile_id' => ['nullable', 'integer', 'exists:pos_profiles,id'],
             'entities' => ['nullable', 'array'],
             'entities.*' => ['string', 'in:'.implode(',', $valid)],
             'limit' => ['nullable', 'integer', 'min:1', 'max:2000'],
@@ -95,8 +97,13 @@ class SyncController extends Controller
 
         $entities = $data['entities'] ?? ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
 
+        // Scope to the client's POS profile when it tells us which one it is
+        // using, so the pull fetches only that profile's warehouse/price list.
+        $profile = ! empty($data['pos_profile_id']) ? PosProfile::find($data['pos_profile_id']) : null;
+        $ctx = $profile ? SyncContext::forProfile($profile) : null;
+
         try {
-            $result = $this->sync->pullMasters($entities, $data['limit'] ?? 500);
+            $result = $this->sync->pullMasters($entities, $data['limit'] ?? 500, $ctx);
         } catch (\Throwable $e) {
             return response()->json([
                 'data' => ['message' => $e->getMessage()],
@@ -145,12 +152,12 @@ class SyncController extends Controller
         }
 
         try {
-            $response = $this->client->ping();
+            $response = $this->client->verify();
 
             return response()->json([
                 'data' => [
                     'success' => true,
-                    'message' => $response['message'] ?? 'Connection successful',
+                    'message' => 'Authenticated as '.($response['user'] ?? 'unknown'),
                 ],
             ]);
         } catch (\Throwable $e) {

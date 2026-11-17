@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\Warehouse;
 use App\Services\ErpNextClient;
 use App\Services\SyncService;
+use Database\Seeders\DemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -34,7 +35,7 @@ class SyncFixesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seed(DemoSeeder::class);
 
         // Point the connector at a fake ERPNext.
         $setting = Setting::current();
@@ -96,6 +97,7 @@ class SyncFixesTest extends TestCase
             $fieldsParam = preg_match('/[?&]fields=([^&]+)/', $url, $m)
                 ? json_decode(urldecode($m[1]), true)
                 : [];
+
             return is_array($fieldsParam) && ! in_array('warehouse_code', $fieldsParam, true);
         });
     }
@@ -106,8 +108,8 @@ class SyncFixesTest extends TestCase
             'erp.example.test/api/method/ping' => Http::response(['message' => 'pong'], 200),
             'erp.example.test/api/resource/Item*' => Http::response(['data' => [
                 ['name' => 'Cola', 'item_code' => 'COLA', 'item_name' => 'Cola 350ml',
-                 'item_group' => 'Beverages', 'stock_uom' => 'Unit', 'sales_uom' => 'Unit',
-                 'is_stock_item' => 1, 'standard_rate' => 1.2, 'disabled' => 0],
+                    'item_group' => 'Beverages', 'stock_uom' => 'Unit', 'sales_uom' => 'Unit',
+                    'is_stock_item' => 1, 'standard_rate' => 1.2, 'disabled' => 0],
             ]], 200),
         ]);
 
@@ -129,6 +131,7 @@ class SyncFixesTest extends TestCase
                     return false; // company filter present = regression
                 }
             }
+
             return true;
         });
     }
@@ -162,6 +165,7 @@ class SyncFixesTest extends TestCase
                         ['item_code' => 'ITEM-0001', 'warehouse' => $stores->erpnext_id, 'actual_qty' => 42.0],
                     ]], 200);
                 }
+
                 // Any other warehouse (e.g. the group) returns empty — exactly
                 // what real ERPNext does for a group warehouse with no Bins.
                 return Http::response(['data' => []], 200);

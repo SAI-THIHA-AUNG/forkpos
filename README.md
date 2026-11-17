@@ -28,7 +28,7 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 | **Reports** | Dashboard (today: sales, payment breakdown, top items, hourly), daily summary |
 | **ERPNext Sync** | Pull masters (items, prices, customers, taxes, warehouses, stock…) **from a real ERPNext** via its REST API, and push invoices back as ERPNext **POS Invoice** documents |
 
-## Quick start
+## Quick start (first-run setup)
 
 ```bash
 git clone https://github.com/SAI-THIHA-AUNG/forkpos.git
@@ -37,27 +37,37 @@ composer install
 cp .env.example .env
 php artisan key:generate
 
-# SQLite is the default (database/database.sqlite is created automatically)
+# SQLite is the default. `--seed` creates ONE bootstrap admin and NO demo data.
 php artisan migrate --seed
 
-# Setup ERPNext integration
-php artisan erpnext:setup
-# Follow the prompts to enter your ERPNext API credentials
-
 php artisan serve
-# API: http://127.0.0.1:8000/api/v1/health
+# One cron line runs the queue + scheduled syncs:
+#   * * * * * cd /path/to/forkpos && php artisan schedule:run
 ```
 
-### Seeded demo accounts
+Open the web console and sign in with the bootstrap account
+(`admin@forkpos.local` / `admin12345`, overridable with `FORKPOS_ADMIN_EMAIL` /
+`FORKPOS_ADMIN_PASSWORD` in `.env`). The app then walks you through:
 
-| User | Email | Password | PIN | Role |
-| --- | --- | --- | --- | --- |
-| POS Administrator | `admin@pos.test` | `password` | `1234` | admin |
-| Aung Cashier | `cashier@pos.test` | `password` | `5678` | cashier |
+1. **Set a new password** (the default one is refused afterwards).
+2. **Connect ERPNext** — server URL, API key, API secret. The credentials are
+   verified against ERPNext (`frappe.auth.get_logged_user`) before they are saved;
+   the secret is stored encrypted. Nothing is read from `.env`.
+3. **Choose POS profiles** for this terminal. Currency, warehouse, price list,
+   payment methods, behaviour flags and "Applicable for Users" all come from the
+   ERPNext profile; users listed there are imported (a manager sets their PIN on
+   the **Users** page).
+4. **Cashier signs in → picks a profile → opens a shift.** Opening the shift
+   queues a profile-scoped sync (that profile's warehouse, price list, item
+   groups, customer groups, tax template). A progress screen shows each step and
+   the register opens when items, prices and stock are in. Later syncs only fetch
+   rows changed since the last run.
 
-The seed also creates a **Main POS** profile (Cash / Card / Mobile Wallet),
-32 demo items with barcodes and 100 units of stock each, 11 customers,
-2 tax templates (5% inclusive, 10% exclusive) and 2 coupons (`WELCOME10`, `FLAT5`).
+Optional demo data for development only: `php artisan db:seed --class=DemoSeeder`
+(`admin@pos.test` / `password`, `cashier@pos.test` / `password`).
+
+> Existing v0.1.0 databases: migrations were adjusted (hardcoded currency /
+> price-list defaults removed), so run `php artisan migrate:fresh --seed`.
 
 ### Switching to MySQL 8 (optional)
 
@@ -299,7 +309,7 @@ app/
   Services/                  InvoiceService, ShiftService, StockService,
                              CouponService, ErpNextClient, SyncService
 database/migrations/         30 migrations (SQLite-first, MySQL-compatible)
-database/seeders/            Demo dataset
+database/seeders/            DatabaseSeeder (bootstrap admin) + DemoSeeder (opt-in demo data)
 routes/api.php               /api/v1 route map
 ```
 

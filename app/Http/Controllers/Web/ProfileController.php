@@ -20,8 +20,7 @@ class ProfileController extends Controller
     {
         $user = $request->user();
 
-        $profiles = PosProfile::where('disabled', false)
-            ->when(! $user->isManager(), fn ($q) => $q->whereHas('users', fn ($u) => $u->where('users.id', $user->id)))
+        $profiles = PosProfile::visibleTo($user)
             ->with(['payments', 'warehouse'])
             ->orderByDesc('is_default')
             ->orderBy('name')
@@ -47,9 +46,9 @@ class ProfileController extends Controller
         ]);
 
         $user = $request->user();
-        $profile = PosProfile::where('disabled', false)->findOrFail($data['pos_profile_id']);
+        $profile = PosProfile::visibleTo($user)->find($data['pos_profile_id']);
 
-        if (! $user->isManager() && ! $profile->users()->where('users.id', $user->id)->exists()) {
+        if (! $profile) {
             return back()->with('error', 'You are not assigned to that POS profile.');
         }
 

@@ -14,8 +14,8 @@ use RuntimeException;
  * Auth follows the Frappe token convention:
  *   Authorization: token <api_key>:<api_secret>
  *
- * Configure via the settings table (GET/PUT /api/v1/settings) or env fallbacks:
- *   ERPNEXT_URL, ERPNEXT_API_KEY, ERPNEXT_API_SECRET, ERPNEXT_COMPANY
+ * Credentials come ONLY from the settings table (first-run setup page or
+ * PUT /api/v1/settings) — there is no .env / config fallback.
  */
 class ErpNextClient
 {
@@ -31,11 +31,22 @@ class ErpNextClient
     {
         $this->setting = $setting ?? Setting::current();
 
-        // Settings table first, .env fallback second (never write env values back
-        // to the model — the api_secret column is encrypted-cast).
-        $this->url = rtrim((string) ($this->setting->erpnext_url ?: config('services.erpnext.url')), '/');
-        $this->apiKey = (string) ($this->setting->erpnext_api_key ?: config('services.erpnext.api_key'));
-        $this->apiSecret = (string) ($this->setting->erpnext_api_secret ?: config('services.erpnext.api_secret'));
+        $this->url = rtrim((string) $this->setting->erpnext_url, '/');
+        $this->apiKey = (string) $this->setting->erpnext_api_key;
+        $this->apiSecret = (string) $this->setting->erpnext_api_secret;
+    }
+
+    /**
+     * Build a client from credentials that are NOT saved yet (setup page
+     * "Test connection"). The secret goes through the same encrypted cast.
+     */
+    public static function make(string $url, string $key, string $secret): self
+    {
+        return new self(new Setting([
+            'erpnext_url' => $url,
+            'erpnext_api_key' => $key,
+            'erpnext_api_secret' => $secret,
+        ]));
     }
 
     public function enabled(): bool
@@ -101,7 +112,50 @@ class ErpNextClient
     }
 
     /**
-     * GET /api/method/ping — cheap connectivity probe.
+     * GET /api/method/frappe.auth.get_logged_user — proves the key/secret are VALID.
+     *
+     * `ping` is open to guests in Frappe, so it only proves the host is up; a
+     * wrong key/secret still "pings". This call is authenticated and returns
+     * the ERPNext user the token belongs to.
+     *
+     * @return array{user: string}
+     */
+    public function verify(): array
+    {
+        $response = $this->request('get', '/api/method/frappe.auth.get_logged_user');
+        $user = $response['message'] ?? null;
+        if (! is_string($user) || $user === '' || $user === 'Guest') {
+            throw new RuntimeException('ERPNext did not accept the API key/secret (resolved to Guest).');
+        }
+
+        return ['user' => $user];
+    }
+
+    /**
+     * Fetch EVERY row of a doctype, page by page (stops on the first short page).
+     *
+     * @param  int  $pageSize  rows per request
+     * @param  int  $maxRows  safety cap so a bad filter can't loop forever
+     */
+    public function listAll(string $doctype, array $fields = ['name'], array $filters = [], int $pageSize = 500, ?string $orderBy = null, int $maxRows = 100000): array
+    {
+        $pageSize = max(1, $pageSize);
+        $all = [];
+        $offset = 0;
+        while (count($all) < $maxRows) {
+            $page = $this->list($doctype, $fields, $filters, $pageSize, $offset, $orderBy);
+            $all = array_merge($all, $page);
+            if (count($page) < $pageSize) {
+                break;
+            }
+            $offset += $pageSize;
+        }
+
+        return $all;
+    }
+
+    /**
+     * GET /api/method/ping — host reachability only (does NOT validate credentials).
      */
     public function ping(): array
     {
@@ -112,18 +166,19 @@ class ErpNextClient
 
     public function company(): string
     {
-        return (string) ($this->setting->erpnext_company ?: config('services.erpnext.company'));
+        return (string) $this->setting->erpnext_company;
     }
 
+    /** Legacy global price list (only used by the manual full sync when no profile context exists). */
     public function priceList(): string
     {
-        return (string) ($this->setting->erpnext_price_list ?: config('services.erpnext.price_list') ?: 'Standard Selling');
+        return (string) $this->setting->erpnext_price_list;
     }
 
     protected function request(string $method, string $path, ?array $query = null, ?array $json = null): array
     {
         if (! $this->enabled()) {
-            throw new RuntimeException('ERPNext connector is not configured. Set erpnext_url / erpnext_api_key / erpnext_api_secret (API: PUT /api/v1/settings).');
+            throw new RuntimeException('ERPNext connector is not configured. Complete the setup step (URL, API key, API secret).');
         }
 
         try {

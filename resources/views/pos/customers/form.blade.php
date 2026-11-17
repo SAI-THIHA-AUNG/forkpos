@@ -3,6 +3,7 @@
 
 @section('content')
 <div class="max-w-2xl mx-auto">
+    <a href="{{ route('customers.index') }}" class="inline-block text-sm text-slate-500 hover:text-slate-700 mb-3">&larr; All customers</a>
     <h1 class="text-xl font-bold text-slate-800 mb-4">{{ $customer->exists ? 'Edit customer' : 'New customer' }}</h1>
     @include('pos.partials.flash')
 

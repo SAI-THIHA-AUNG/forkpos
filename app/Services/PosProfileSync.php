@@ -4,10 +4,15 @@ namespace App\Services;
 
 use App\Models\PosProfile;
 use App\Models\PosProfilePayment;
+use App\Models\Setting;
+use App\Models\User;
 use App\Models\Warehouse;
+use App\Support\PosProfileConfig;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 /**
  * Pulls ERPNext POS Profile documents into the local `pos_profiles` table.
@@ -54,7 +59,7 @@ class PosProfileSync
         // message rather than a 500 stack trace on the very first request().
         try {
             $this->client->ping();
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             return ['synced' => 0, 'errors' => ['ping: '.$e->getMessage()]];
         }
 
@@ -68,7 +73,7 @@ class PosProfileSync
             try {
                 $this->syncOne($name);
                 $synced++;
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $errors[] = "{$name}: ".$e->getMessage();
                 Log::warning('PosProfileSync failed for one profile', ['name' => $name, 'error' => $e->getMessage()]);
             }
@@ -90,7 +95,7 @@ class PosProfileSync
             throw new RuntimeException("ERPNext returned no POS Profile named '{$erpName}'.");
         }
 
-        return DB::transaction(function () use ($doc): PosProfile {
+        $profile = DB::transaction(function () use ($doc): PosProfile {
             // Resolve the warehouse FK — the ERPNext doc carries the warehouse
             // `name` (e.g. "Stores - M"); our local warehouses table holds the
             // same string in `erpnext_id` after pullWarehouse() ran.
@@ -108,28 +113,19 @@ class PosProfileSync
                 }
             }
 
-            $profile = PosProfile::updateOrCreate(
-                ['erpnext_id' => $doc['name']],
-                [
-                    // Display name: prefer the ERPNext `pos_profile_name` if
-                    // present (human-friendly), fall back to the doc `name`.
-                    'name' => $doc['pos_profile_name'] ?? $doc['name'],
-                    'company' => $doc['company'] ?? null,
-                    'country' => $doc['country'] ?? null,
-                    'currency' => $doc['currency'] ?? null,
-                    'warehouse_id' => $warehouseId,
-                    'selling_price_list' => $doc['selling_price_list'] ?? null,
-                    'write_off_limit' => (float) ($doc['write_off_limit'] ?? 0),
-                    'write_off_account' => $doc['write_off_account'] ?? null,
-                    'cost_center' => $doc['write_off_cost_center']
-                        ?? $doc['cost_center']
-                        ?? null,
-                    // Full ERPNext snapshot — source of truth for any field we
-                    // haven't promoted to a column yet.
-                    'erpnext_data' => $doc,
-                    'synced_at' => now(),
-                ]
-            );
+            // Field mapping lives in PosProfileConfig — the only place that
+            // knows ERPNext field names and local defaults.
+            $attributes = array_merge(PosProfileConfig::synced($doc), ['warehouse_id' => $warehouseId]);
+            $profile = PosProfile::where('erpnext_id', $doc['name'])->first();
+            if ($profile) {
+                $profile->update($attributes);
+            } else {
+                $profile = PosProfile::create(
+                    array_merge(PosProfileConfig::localDefaults(), $attributes, ['erpnext_id' => $doc['name']])
+                );
+            }
+
+            $this->importUsers($profile);
 
             // Reconcile the payment-methods child table:
             //   - upsert every row from the ERPNext `payments` child table
@@ -161,5 +157,138 @@ class PosProfileSync
 
             return $profile->fresh(['payments', 'warehouse']);
         });
+
+        $this->mirrorStoreDefaults($doc);
+
+        return $profile;
+    }
+
+    /**
+     * ERPNext owns the store identity: mirror the profile's company, currency
+     * and selling price list onto the singleton settings row so receipts,
+     * invoice currency and the settings page no longer need manual entry.
+     *
+     * The currency symbol/precision are pulled from the ERPNext Currency doc
+     * once per currency (it is a store-wide value, not a per-profile field).
+     *
+     * @param  array<string, mixed>  $doc
+     */
+    protected function mirrorStoreDefaults(array $doc): void
+    {
+        $setting = Setting::current();
+        $changes = [];
+
+        $company = trim((string) ($doc['company'] ?? ''));
+        if ($company !== '') {
+            $changes['company_name'] = $company;
+            $changes['erpnext_company'] = $company;
+        }
+
+        if (! empty($doc['selling_price_list'])) {
+            $changes['erpnext_price_list'] = (string) $doc['selling_price_list'];
+        }
+
+        $currency = strtoupper(trim((string) ($doc['currency'] ?? '')));
+        if ($currency !== '') {
+            $changes['currency'] = $currency;
+
+            // Only hit the Currency API when the code changed or we have no symbol yet.
+            if ($setting->currency !== $currency || ! $setting->currency_symbol) {
+                [$symbol, $precision] = $this->currencyFormat($currency);
+                $changes['currency_symbol'] = $symbol;
+                if ($precision !== null) {
+                    $changes['currency_precision'] = $precision;
+                }
+            }
+        }
+
+        if (! $changes) {
+            return;
+        }
+
+        $setting->fill($changes)->save();
+        Setting::flushCache();
+    }
+
+    /**
+     * Symbol + decimal precision for an ERPNext currency.
+     *
+     * @return array{0: string, 1: int|null}
+     */
+    protected function currencyFormat(string $code): array
+    {
+        $symbol = '';
+        $precision = null;
+
+        try {
+            $doc = $this->client->doc('Currency', $code);
+
+            $symbol = trim((string) ($doc['symbol'] ?? ''));
+
+            // ERPNext stores the display mask in `number_format` (e.g. "#,###.##").
+            $format = (string) ($doc['number_format'] ?? '');
+            if ($format !== '' && preg_match('/\.([#0]+)/', $format, $m)) {
+                $precision = strlen($m[1]);
+            } elseif ($format !== '') {
+                $precision = 0;
+            }
+        } catch (Throwable $e) {
+            Log::warning('PosProfileSync: currency format not synced', [
+                'currency' => $code,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return [$symbol !== '' ? $symbol : PosProfile::symbolFor($code), $precision];
+    }
+
+    /**
+     * Re-pull only the profiles this terminal serves (scheduler / CLI default).
+     *
+     * @return array{synced: int, errors: array<int, string>}
+     */
+    public function syncEnabled(): array
+    {
+        $names = PosProfile::whereNotNull('erpnext_id')->where('device_enabled', true)->pluck('erpnext_id');
+        $synced = 0;
+        $errors = [];
+        foreach ($names as $name) {
+            try {
+                $this->syncOne($name);
+                $synced++;
+            } catch (Throwable $e) {
+                $errors[] = "{$name}: ".$e->getMessage();
+            }
+        }
+
+        return ['synced' => $synced, 'errors' => $errors];
+    }
+
+    /**
+     * ERPNext "Applicable for Users" → local users + pos_profile_users.
+     *
+     * Mirrors ERPNext: an empty list means "everyone" (no rows attached).
+     * Users we have never seen are created as cashiers with an unusable random
+     * password and NO PIN — a manager sets the PIN on the Users page.
+     */
+    protected function importUsers(PosProfile $profile): void
+    {
+        $pivot = [];
+        foreach ($profile->applicableUsers() as $erpUser => $isDefault) {
+            $user = User::where('email', $erpUser)->orWhere('erpnext_id', $erpUser)->first();
+            if (! $user) {
+                $user = User::create([
+                    'name' => Str::of($erpUser)->before('@')->replace(['.', '_'], ' ')->title()->toString() ?: $erpUser,
+                    'email' => $erpUser,
+                    'password' => Str::random(40),
+                    'role' => User::ROLE_CASHIER,
+                    'is_active' => true,
+                    'erpnext_id' => $erpUser,
+                ]);
+            }
+            $pivot[$user->id] = ['is_default' => $isDefault];
+        }
+
+        $profile->users()->sync($pivot);
     }
 }

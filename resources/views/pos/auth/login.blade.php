@@ -13,7 +13,11 @@
         <div class="bg-white rounded-2xl shadow-2xl p-8">
             @if($needsBootstrap)
             <div class="mb-6 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-                No users exist yet. Run <code class="bg-amber-100 px-1 rounded">php artisan migrate:fresh --seed</code> to create the demo admin (<code>admin@pos.test</code> / <code>password</code>, PIN <code>1234</code>).
+                No users exist yet. Run <code class="bg-amber-100 px-1 rounded">php artisan migrate --seed</code> to create the bootstrap administrator.
+            </div>
+            @elseif($bootstrapPending ?? false)
+            <div class="mb-6 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm">
+                First run? Sign in with the bootstrap administrator account (<code>{{ config('forkpos.bootstrap_admin.email') }}</code>) — you will be asked to set a new password.
             </div>
             @endif
 
@@ -23,28 +27,32 @@
             </div>
             @endif
 
+            @php($pinTab = $errors->has('pin'))
             <ul class="flex border-b border-slate-200 mb-6 text-sm">
-                <li><button type="button" data-tab="email" class="tab-btn px-4 py-2 font-medium border-b-2 border-brand-600 text-brand-700">Email &amp; password</button></li>
-                <li><button type="button" data-tab="pin" class="tab-btn px-4 py-2 font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700">PIN</button></li>
+                <li><button type="button" data-tab="email" class="tab-btn px-4 py-2 font-medium border-b-2 {{ $pinTab ? 'border-transparent text-slate-500 hover:text-slate-700' : 'border-brand-600 text-brand-700' }}">Email &amp; password</button></li>
+                <li><button type="button" data-tab="pin" class="tab-btn px-4 py-2 font-medium border-b-2 {{ $pinTab ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700' }}">PIN</button></li>
             </ul>
 
             <form method="POST" action="{{ route('login') }}">
                 @csrf
-                <div data-pane="email" class="space-y-4">
+                {{-- Only the active pane's inputs are enabled: the login form treats a
+                     supplied PIN as PIN login, so a leftover PIN value must never be
+                     submitted next to an email/password pair. --}}
+                <div data-pane="email" class="space-y-4 {{ $pinTab ? 'hidden' : '' }}">
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                        <input type="email" name="email" value="{{ old('email') }}" autofocus class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="admin@pos.test">
+                        <input type="email" name="email" value="{{ old('email') }}" autofocus @disabled($pinTab) class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="email">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                        <input type="password" name="password" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="password">
+                        <input type="password" name="password" @disabled($pinTab) class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="••••••••">
                     </div>
                 </div>
 
-                <div data-pane="pin" class="space-y-4 hidden">
+                <div data-pane="pin" class="space-y-4 {{ $pinTab ? '' : 'hidden' }}">
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">PIN (4–8 digits)</label>
-                        <input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" maxlength="8" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-2xl tracking-[0.5em] focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="••••">
+                        <input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" maxlength="8" @disabled(! $pinTab) class="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-2xl tracking-[0.5em] focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="••••">
                         <p class="text-xs text-slate-500 mt-2">PIN login matches against all active users — set a unique PIN per cashier.</p>
                     </div>
                 </div>
@@ -63,16 +71,32 @@
 </div>
 
 <script>
+    const panes = document.querySelectorAll('[data-pane]');
+
+    // Disabled inputs are not submitted, so only the visible tab reaches the server.
+    const syncPaneInputs = () => {
+        panes.forEach(pane => {
+            const active = !pane.classList.contains('hidden');
+            pane.querySelectorAll('input').forEach(input => { input.disabled = !active; });
+        });
+    };
+
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.dataset.tab;
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.replace('border-brand-600','border-transparent') || b.classList.replace('text-brand-700','text-slate-500'));
-            btn.classList.remove('border-transparent','text-slate-500');
-            btn.classList.add('border-brand-600','text-brand-700');
-            document.querySelectorAll('[data-pane]').forEach(p => p.classList.add('hidden'));
-            document.querySelector(`[data-pane="${tab}"]`).classList.remove('hidden');
-            document.querySelector(`[data-pane="${tab}"] input`)?.focus();
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                const active = b === btn;
+                b.classList.toggle('border-brand-600', active);
+                b.classList.toggle('text-brand-700', active);
+                b.classList.toggle('border-transparent', !active);
+                b.classList.toggle('text-slate-500', !active);
+            });
+            panes.forEach(pane => pane.classList.toggle('hidden', pane.dataset.pane !== tab));
+            syncPaneInputs();
+            document.querySelector(`[data-pane="${tab}"] input:not([disabled])`)?.focus();
         });
     });
+
+    syncPaneInputs();
 </script>
 @endsection

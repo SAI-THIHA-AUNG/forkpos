@@ -3,11 +3,16 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncProfileCatalog;
 use App\Models\Invoice;
 use App\Models\Item;
+use App\Models\ItemBarcode;
 use App\Models\ItemGroup;
+use App\Models\PosProfile;
 use App\Models\Setting;
+use App\Models\Tax;
 use App\Services\InvoiceService;
+use App\Services\ProfileCatalogSync;
 use App\Services\ShiftService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
@@ -20,6 +25,7 @@ class PosController extends Controller
         protected InvoiceService $invoices,
         protected ShiftService $shifts,
         protected StockService $stock,
+        protected ProfileCatalogSync $catalog,
     ) {}
 
     /**
@@ -29,7 +35,7 @@ class PosController extends Controller
      */
     public function register(Request $request)
     {
-        /** @var \App\Models\PosProfile $profile */
+        /** @var PosProfile $profile */
         $profile = $request->attributes->get('posProfile');
         $setting = Setting::current();
 
@@ -48,6 +54,11 @@ class PosController extends Controller
                 ->with('warning', "Open a shift on {$profile->name} before selling.");
         }
 
+        // An ERPNext profile's catalog is pulled when the shift opens; wait for it.
+        if (! $this->catalog->isReady($profile)) {
+            return redirect()->route('pos.preparing');
+        }
+
         // Bootstrap the catalog with the first 60 items so the page renders
         // useful content without a follow-up fetch. The JS layer can paginate
         // or search via /pos/items for larger catalogs.
@@ -60,7 +71,14 @@ class PosController extends Controller
 
         // Default taxes — the register applies the default tax template to
         // each line unless the client overrides per line.
-        $defaultTaxes = \App\Models\Tax::where('is_default', true)->get(['id', 'name', 'rate', 'included_in_price']);
+        // The profile's own ERPNext tax template wins; otherwise the default templates.
+        $defaultTaxes = Tax::query()
+            ->when(
+                $profile->taxTemplate(),
+                fn ($q, $tpl) => $q->where('erpnext_id', $tpl),
+                fn ($q) => $q->where('is_default', true)
+            )
+            ->get(['id', 'name', 'rate', 'included_in_price']);
 
         return view('pos.register', [
             'profile' => $profile,
@@ -71,6 +89,31 @@ class PosController extends Controller
             'defaultTaxes' => $defaultTaxes,
             'currentShift' => $currentShift,
         ]);
+    }
+
+    /** GET /pos/preparing — progress screen while the profile's catalog is pulled. */
+    public function preparing(Request $request)
+    {
+        $profile = $request->attributes->get('posProfile');
+        if ($this->catalog->isReady($profile)) {
+            return redirect()->route('pos.register');
+        }
+
+        return view('pos.prepare', ['profile' => $profile, 'progress' => $this->catalog->progress($profile)]);
+    }
+
+    /** GET /pos/preparing/status — polled by the progress screen. */
+    public function preparingStatus(Request $request)
+    {
+        return response()->json(['data' => $this->catalog->progress($request->attributes->get('posProfile'))]);
+    }
+
+    /** POST /pos/preparing/retry */
+    public function preparingRetry(Request $request)
+    {
+        SyncProfileCatalog::dispatch($request->attributes->get('posProfile')->id);
+
+        return redirect()->route('pos.preparing')->with('info', 'Sync queued again.');
     }
 
     /**
@@ -93,7 +136,7 @@ class PosController extends Controller
         $total = (clone $query)->toBase()->count();
         $items = $query->orderBy('item_name')->offset($offset)->limit($pageLength)->get();
         $stockMap = $this->stock->balancesFor($items->pluck('id')->all(), $profile->warehouse_id);
-        $priceList = $profile->selling_price_list ?: 'Standard Selling';
+        $priceList = $profile->selling_price_list;
 
         return response()->json([
             'data' => $items->map(fn (Item $item) => [
@@ -116,7 +159,7 @@ class PosController extends Controller
      */
     public function itemByBarcode(Request $request, string $code)
     {
-        $barcode = \App\Models\ItemBarcode::with('item')->where('barcode', $code)->first();
+        $barcode = ItemBarcode::with('item')->where('barcode', $code)->first();
         if (! $barcode || ! $barcode->item || $barcode->item->disabled) {
             return response()->json(['data' => null], 404);
         }
@@ -130,7 +173,7 @@ class PosController extends Controller
                 'item_code' => $item->item_code,
                 'item_name' => $item->item_name,
                 'uom' => $item->salesUom?->uom_name ?? $item->stockUom?->uom_name ?? 'Unit',
-                'rate' => $item->effectiveRate($profile->selling_price_list ?: 'Standard Selling'),
+                'rate' => $item->effectiveRate($profile->selling_price_list),
                 'allow_discount' => $item->allow_discount,
                 'is_stock_item' => $item->is_stock_item,
                 'stock_qty' => $stockMap[$item->id] ?? 0.0,

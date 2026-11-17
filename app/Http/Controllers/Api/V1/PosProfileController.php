@@ -16,10 +16,7 @@ class PosProfileController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $profiles = PosProfile::where('disabled', false)
-            ->when(! $request->user()->isManager(), function ($q) use ($request) {
-                $q->whereHas('users', fn ($u) => $u->where('users.id', $request->user()->id));
-            })
+        $profiles = PosProfile::visibleTo($request->user())
             ->with(['payments', 'warehouse'])
             ->orderByDesc('is_default')
             ->orderBy('name')

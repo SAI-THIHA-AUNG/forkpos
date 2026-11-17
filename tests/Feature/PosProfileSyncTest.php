@@ -6,6 +6,7 @@ use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\Warehouse;
 use App\Services\PosProfileSync;
+use Database\Seeders\DemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -29,7 +30,7 @@ class PosProfileSyncTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seed(DemoSeeder::class);
 
         $setting = Setting::current();
         $setting->forceFill([

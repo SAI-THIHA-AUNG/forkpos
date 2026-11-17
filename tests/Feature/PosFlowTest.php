@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Models\Item;
 use App\Models\PosProfile;
 use App\Models\Tax;
-use App\Models\User;
+use Database\Seeders\DemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -21,7 +21,7 @@ class PosFlowTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->seed();
+        $this->seed(DemoSeeder::class);
     }
 
     protected function loginAsAdmin(): array
