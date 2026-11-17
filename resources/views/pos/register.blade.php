@@ -86,6 +86,25 @@
         </div>
 
         <div class="border-t border-slate-100 px-4 py-3">
+            <label class="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                <input id="credit-toggle" type="checkbox" class="rounded border-slate-300 text-brand-600">
+                Credit sale (customer pays later)
+            </label>
+            <div id="credit-panel" class="hidden mt-2 space-y-2">
+                <p class="text-xs text-slate-500">Payment due in</p>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    @foreach (\App\Models\Invoice::CREDIT_TERM_DAYS as $days)
+                    <button type="button" data-credit-days="{{ $days }}" class="credit-term px-3 py-1 rounded-full border border-slate-300 text-xs text-slate-600">{{ $days }} days</button>
+                    @endforeach
+                    <button type="button" data-credit-days="custom" class="credit-term px-3 py-1 rounded-full border border-slate-300 text-xs text-slate-600">Pick date</button>
+                </div>
+                <input id="credit-date" type="date" class="hidden w-full rounded border border-slate-300 px-2 py-1.5 text-sm" min="{{ now()->toDateString() }}">
+                <p id="credit-due" class="text-xs text-slate-500"></p>
+                <p class="text-xs text-slate-400">Choose a customer above. Enter any amount paid now below (cash or digital); the rest stays due.</p>
+            </div>
+        </div>
+
+        <div class="border-t border-slate-100 px-4 py-3">
             <p class="text-xs text-slate-500 mb-1">Payment</p>
             <div id="payments" class="space-y-2">
                 {{-- payment rows --}}
@@ -466,25 +485,79 @@ function recalcTotals() {
     });
 })();
 
+// ---- Credit sale -------------------------------------------------------
+// credit = { on, days: 7|14|30|'custom'|null, date: 'YYYY-MM-DD' }
+let credit = { on: false, days: null, date: '' };
+
+function isoDate(d) {
+    const z = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+function creditDueDate() {
+    if (!credit.on) return '';
+    if (credit.days === 'custom') return credit.date;
+    if (!credit.days) return '';
+    const d = new Date();
+    d.setDate(d.getDate() + credit.days);
+    return isoDate(d);
+}
+function renderCredit() {
+    document.getElementById('credit-panel').classList.toggle('hidden', !credit.on);
+    document.querySelectorAll('.credit-term').forEach(b => {
+        const active = String(credit.days) === b.dataset.creditDays;
+        b.classList.toggle('bg-brand-600', active);
+        b.classList.toggle('text-white', active);
+        b.classList.toggle('border-brand-600', active);
+        b.classList.toggle('text-slate-600', !active);
+    });
+    document.getElementById('credit-date').classList.toggle('hidden', credit.days !== 'custom');
+    const due = creditDueDate();
+    document.getElementById('credit-due').textContent = due ? 'Due on ' + due : 'Pick the payment terms';
+    document.getElementById('checkout').textContent = credit.on ? 'Charge on credit' : 'Charge';
+}
+document.getElementById('credit-toggle').addEventListener('change', e => {
+    credit.on = e.target.checked;
+    // A credit sale starts with nothing paid; a cash sale pre-fills the full total again.
+    payments = [defaultPaymentRow()];
+    if (!credit.on) { credit.days = null; credit.date = ''; }
+    renderCredit();
+    renderPayments();
+    autofillSinglePayment();
+});
+document.querySelectorAll('.credit-term').forEach(b => b.addEventListener('click', () => {
+    credit.days = b.dataset.creditDays === 'custom' ? 'custom' : parseInt(b.dataset.creditDays);
+    renderCredit();
+}));
+document.getElementById('credit-date').addEventListener('change', e => { credit.date = e.target.value; renderCredit(); });
+
 // ---- Payments ----------------------------------------------------------
 function defaultPaymentRow() {
     const def = PAYMENT_MODES.find(p => p.is_default) ?? PAYMENT_MODES[0];
-    return { mode_of_payment: def?.mode_of_payment ?? '', amount: 0 };
+    return { mode_of_payment: def?.mode_of_payment ?? '', amount: 0, reference_no: '' };
 }
 let payments = [defaultPaymentRow()];
+// Anything that is not cash (KBZPay, Wave, bank transfer, card...) gets an optional reference field.
+const isDigitalMode = mode => !/cash/i.test(mode || '');
 
 function renderPayments() {
     const el = document.getElementById('payments');
     el.innerHTML = payments.map((p, i) => `
-        <div class="flex items-center gap-2">
-            <select data-pay-mode="${i}" class="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm bg-white">
-                ${PAYMENT_MODES.map(m => `<option ${m.mode_of_payment===p.mode_of_payment?'selected':''}>${m.mode_of_payment}</option>`).join('')}
-            </select>
-            <input type="number" step="0.01" min="0" data-pay-amount="${i}" value="${p.amount || ''}" placeholder="0" class="w-24 text-right rounded border border-slate-300 px-2 py-1.5 text-sm no-spin">
-            ${payments.length > 1 ? `<button data-pay-remove="${i}" class="text-slate-300 hover:text-red-500">×</button>` : ''}
+        <div>
+            <div class="flex items-center gap-2">
+                <select data-pay-mode="${i}" class="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm bg-white">
+                    ${PAYMENT_MODES.map(m => `<option ${m.mode_of_payment===p.mode_of_payment?'selected':''}>${esc(m.mode_of_payment)}</option>`).join('')}
+                </select>
+                <input type="number" step="0.01" min="0" data-pay-amount="${i}" value="${p.amount || ''}" placeholder="0" class="w-24 text-right rounded border border-slate-300 px-2 py-1.5 text-sm no-spin">
+                ${payments.length > 1 ? `<button data-pay-remove="${i}" class="text-slate-300 hover:text-red-500">×</button>` : ''}
+            </div>
+            ${isDigitalMode(p.mode_of_payment) ? `<input type="text" maxlength="64" data-pay-ref="${i}" value="${esc(p.reference_no)}" placeholder="Reference / transaction no. (optional)" class="mt-1 w-full rounded border border-slate-200 px-2 py-1 text-xs">` : ''}
         </div>
     `).join('');
-    el.querySelectorAll('[data-pay-mode]').forEach(s => s.addEventListener('change', () => { payments[parseInt(s.dataset.payMode)].mode_of_payment = s.value; }));
+    el.querySelectorAll('[data-pay-mode]').forEach(s => s.addEventListener('change', () => {
+        payments[parseInt(s.dataset.payMode)].mode_of_payment = s.value;
+        renderPayments();
+    }));
+    el.querySelectorAll('[data-pay-ref]').forEach(inp => inp.addEventListener('input', () => { payments[parseInt(inp.dataset.payRef)].reference_no = inp.value; }));
     el.querySelectorAll('[data-pay-amount]').forEach(inp => {
         inp.addEventListener('input', () => { payments[parseInt(inp.dataset.payAmount)].amount = parseFloat(inp.value) || 0; recalcChange(); });
     });
@@ -494,6 +567,7 @@ function renderPayments() {
 
 function autofillSinglePayment() {
     // Pre-fill a lone default payment row with the total, like cash-tender POS screens.
+    if (credit.on) { recalcChange(); return; } // credit: the whole total stays due unless a down payment is typed
     const defMode = (PAYMENT_MODES.find(p => p.is_default) ?? PAYMENT_MODES[0])?.mode_of_payment;
     if (payments.length === 1 && payments[0].mode_of_payment === defMode) {
         payments[0].amount = Number(GRAND.toFixed(PRECISION));
@@ -511,13 +585,14 @@ function recalcChange() {
     el.textContent = CURRENCY + fmtAmount(Math.abs(diff));
     el.classList.remove('text-green-600','text-red-600','text-slate-500');
     el.classList.add(diff >= 0 ? 'text-green-600' : 'text-red-600');
-    el.textContent = (diff >= 0 ? 'Change: ' : 'Due: ') + CURRENCY + fmtAmount(Math.abs(diff));
+    el.textContent = (diff >= 0 ? 'Change: ' : (credit.on ? 'On credit: ' : 'Due: ')) + CURRENCY + fmtAmount(Math.abs(diff));
 }
 document.getElementById('add-payment').addEventListener('click', () => {
     payments.push(defaultPaymentRow());
     renderPayments();
 });
 renderPayments();
+renderCredit();
 
 // ---- Customer search ---------------------------------------------------
 const cs = document.getElementById('customer-search');
@@ -549,7 +624,11 @@ document.getElementById('checkout').addEventListener('click', () => {
     if (!cart.length) return;
     const grand = GRAND;
     const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
-    if (paid < grand - 0.01) {
+    if (credit.on) {
+        if (!cs.dataset.customerId) { flash('Choose a customer for a credit sale.', 'error'); return; }
+        if (!creditDueDate()) { flash('Pick the payment terms: 7, 14, 30 days or a date.', 'error'); return; }
+        if (paid >= grand - 0.01) { flash('Payments already cover the total — untick Credit sale.', 'error'); return; }
+    } else if (paid < grand - 0.01) {
         if (!confirm('Payment is short of total. Submit as unpaid invoice?')) return;
     }
     const payload = {
@@ -566,9 +645,13 @@ document.getElementById('checkout').addEventListener('click', () => {
             discount_amount: c.discount_type === 'amount' && c.discount_value > 0 ? c.discount_value : null,
             tax_id: c.tax_id,
         })),
+        is_credit: credit.on,
+        credit_days: credit.on && credit.days !== 'custom' ? credit.days : null,
+        due_date: credit.on && credit.days === 'custom' ? credit.date : null,
         payments: payments.filter(p => p.amount > 0).map(p => ({
             mode_of_payment: p.mode_of_payment,
             amount: p.amount,
+            reference_no: p.reference_no || null,
         })),
     };
     fetch('{{ route('pos.checkout') }}', {

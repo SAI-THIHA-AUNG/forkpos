@@ -75,7 +75,8 @@
             <div class="flex justify-between font-bold border-t border-slate-100 pt-1"><span>Total</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->grand_total, $precision) }}</span></div>
             <div class="flex justify-between"><span class="text-slate-500">Paid</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->paid_amount, $precision) }}</span></div>
             @if ($invoice->change_amount > 0)<div class="flex justify-between"><span class="text-slate-500">Change</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->change_amount, $precision) }}</span></div>@endif
-            @if ($invoice->outstanding_amount > 0.001)<div class="flex justify-between text-red-600 font-semibold"><span>Outstanding</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->outstanding_amount, $precision) }}</span></div>@endif
+            @if ($invoice->outstanding_amount > 0.001)<div class="flex justify-between text-red-600 font-semibold"><span>{{ $invoice->is_credit ? 'Balance due' : 'Outstanding' }}</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->outstanding_amount, $precision) }}</span></div>@endif
+            @if ($invoice->is_credit && $invoice->due_date)<div class="flex justify-between {{ $invoice->isOverdue() ? 'text-red-600 font-semibold' : '' }}"><span class="{{ $invoice->isOverdue() ? '' : 'text-slate-500' }}">Payment due{{ $invoice->isOverdue() ? ' (overdue)' : '' }}</span><span>{{ $invoice->due_date->format('M j, Y') }}@if($invoice->credit_days) · {{ $invoice->credit_days }} days @endif</span></div>@endif
         </div>
         @if ($invoice->payments->isNotEmpty())
         <div class="mt-3 pt-3 border-t border-slate-100">

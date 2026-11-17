@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Services\InvoiceService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
@@ -28,6 +29,9 @@ class InvoiceController extends Controller
             'additional_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'loyalty_points' => ['nullable', 'integer', 'min:0'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'is_credit' => ['nullable', 'boolean'],
+            'credit_days' => ['nullable', 'integer', Rule::in(Invoice::CREDIT_TERM_DAYS)],
+            'due_date' => ['nullable', 'date'],
             'warehouse_id' => ['nullable', 'integer', 'exists:warehouses,id'],
             'posting_datetime' => ['nullable', 'date'],
             'is_return' => ['nullable', 'boolean'],
@@ -174,6 +178,9 @@ class InvoiceController extends Controller
             'paid_amount' => (float) $invoice->paid_amount,
             'change_amount' => (float) $invoice->change_amount,
             'outstanding_amount' => (float) $invoice->outstanding_amount,
+            'is_credit' => (bool) $invoice->is_credit,
+            'due_date' => $invoice->due_date?->toDateString(),
+            'credit_days' => $invoice->credit_days,
             'coupon_code' => $invoice->coupon_code,
             'coupon_discount' => (float) $invoice->coupon_discount,
             'additional_discount_percentage' => (float) $invoice->additional_discount_percentage,

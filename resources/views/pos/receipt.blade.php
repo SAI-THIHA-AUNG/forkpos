@@ -23,6 +23,7 @@
             <p class="text-lg font-bold text-slate-800">{{ $setting->company_name }}</p>
             @endif
             <p class="text-xs text-slate-500 mt-1">{{ $invoice->posProfile?->name ?? '' }}</p>
+            @if ($invoice->is_credit)<p class="text-xs font-semibold tracking-wide text-slate-700 mt-1">CREDIT SALE</p>@endif
         </div>
 
         <div class="border-t border-dashed border-slate-300 pt-3 mb-3 text-xs text-slate-600 space-y-0.5">
@@ -90,7 +91,10 @@
             <div class="flex justify-between"><span class="text-slate-500">Change</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->change_amount, $precision) }}</span></div>
             @endif
             @if ($invoice->outstanding_amount > 0.001)
-            <div class="flex justify-between text-red-600 font-semibold"><span>Outstanding</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->outstanding_amount, $precision) }}</span></div>
+            <div class="flex justify-between text-red-600 font-semibold"><span>{{ $invoice->is_credit ? 'Balance due' : 'Outstanding' }}</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->outstanding_amount, $precision) }}</span></div>
+            @endif
+            @if ($invoice->is_credit && $invoice->due_date)
+            <div class="flex justify-between font-semibold"><span>Payment due</span><span>{{ $invoice->due_date->format('Y-m-d') }}@if($invoice->credit_days) ({{ $invoice->credit_days }} days)@endif</span></div>
             @endif
         </div>
 

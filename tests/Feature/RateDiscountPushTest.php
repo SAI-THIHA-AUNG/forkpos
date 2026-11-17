@@ -55,12 +55,12 @@ class RateDiscountPushTest extends TestCase
         return ['Authorization' => 'Bearer '.$response->json('data.token')];
     }
 
-    protected function sell(Item $item, float $qty, array $line = []): TestResponse
+    protected function sell(Item $item, float $qty, array $line = [], array $payments = []): TestResponse
     {
         return $this->postJson('/api/v1/invoices', [
             'pos_profile_id' => $this->profile->id,
             'items' => [array_merge(['item_id' => $item->id, 'qty' => $qty], $line)],
-            'payments' => [],
+            'payments' => $payments,
         ], $this->authHeaders());
     }
 
@@ -148,7 +148,7 @@ class RateDiscountPushTest extends TestCase
         $item = Item::where('item_code', 'ITEM-0001')->firstOrFail();
         $item->update(['erpnext_id' => 'ITEM-0001']);
 
-        $response = $this->sell($item, 2, ['discount_percentage' => 10]);
+        $response = $this->sell($item, 2, ['discount_percentage' => 10], [['mode_of_payment' => 'Cash', 'amount' => 5]]);
         $response->assertCreated();
 
         $invoice = Invoice::firstOrFail();

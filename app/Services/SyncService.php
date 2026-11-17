@@ -466,14 +466,19 @@ class SyncService
             'description' => $t->description,
         ], fn ($v) => $v !== null))->values()->all();
 
+        // A POS invoice needs at least one payment row; a sale fully on credit
+        // (nothing paid up front) goes over as a regular Sales Invoice instead.
+        $isPos = $payments !== [];
+
         $payload = array_filter([
             'customer' => $customer->erpnext_id,
             'company' => $company,
-            'pos_profile' => $posProfile,
-            'is_pos' => 1,
+            'pos_profile' => $isPos ? $posProfile : null,
+            'is_pos' => $isPos ? 1 : 0,
             'update_stock' => 1,
             'set_posting_time' => 1,
             'posting_date' => $invoice->posting_date->toDateString(),
+            'due_date' => $invoice->is_credit ? $invoice->due_date?->toDateString() : null,
             'currency' => $invoice->currency ?: ($profile?->currency ?? null),
             'selling_price_list' => $priceList,
             'items' => $items,

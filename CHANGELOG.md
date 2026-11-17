@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [0.5.0] — 2026-11-17
+
+Credit sales: a customer takes goods now and pays later.
+
+### Added
+- `is_credit`, `due_date` and `credit_days` on invoices (migration adds the three
+  columns); `Invoice::CREDIT_TERM_DAYS = [7, 14, 30]` and `Invoice::isOverdue()`.
+- Credit flow on the register: a toggle that swaps the tender into a down-payment
+  editor, 7 / 14 / 30-day pills plus a "Pick date" option, a live due-date line and
+  a "Charge on credit" button. Any non-cash payment row gets an optional reference
+  field (KBZPay, Wave, bank transfer, card…).
+- Backend rules: a walk-in customer cannot owe money, terms must be one of
+  `[7, 14, 30]` or a future due date, and credit is refused when the payments
+  already cover the total. Zero paid up front → `unpaid`, a down payment →
+  `partly_paid`; the rest stays in `outstanding_amount`.
+- Invoice list gains a **Due** column, overdue highlighting and a payment-type
+  filter (All / Credit / Overdue). Receipts and invoice pages show the credit
+  status, balance due and payment-due date.
+
+### Changed
+- The ERPNext push now sends a regular Sales Invoice (`is_pos = 0`, no POS profile,
+  with `due_date`) when a sale has no payment rows (i.e. is fully on credit); paid
+  sales still push as POS invoices (`is_pos = 1`).
+- `RateDiscountPushTest` sale helper accepts a payments argument so the POS-push
+  test keeps a payment row under the new logic.
+
 ## [0.4.0] — 2026-11-17
 
 Invoice numbering is owned by ERPNext, and money/quantity displays stop forcing

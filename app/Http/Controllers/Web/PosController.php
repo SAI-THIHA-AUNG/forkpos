@@ -17,6 +17,7 @@ use App\Services\ShiftService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class PosController extends Controller
@@ -198,6 +199,9 @@ class PosController extends Controller
             'additional_discount_amount' => ['nullable', 'numeric', 'min:0'],
             'loyalty_points' => ['nullable', 'integer', 'min:0'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'is_credit' => ['nullable', 'boolean'],
+            'credit_days' => ['nullable', 'integer', Rule::in(Invoice::CREDIT_TERM_DAYS)],
+            'due_date' => ['nullable', 'date'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.item_id' => ['required', 'integer', 'exists:items,id'],
             'items.*.qty' => ['required', 'numeric', 'not_in:0'],

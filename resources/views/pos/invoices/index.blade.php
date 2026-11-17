@@ -11,6 +11,11 @@
 
     <form method="GET" class="flex gap-2 mb-4">
         <input type="search" name="q" value="{{ $q }}" placeholder="Search invoice no or customer…" class="flex-1 rounded-lg border border-slate-300 px-3 py-2">
+        <select name="credit" class="rounded-lg border border-slate-300 px-3 py-2 bg-white">
+            <option value="">All payment types</option>
+            <option value="credit" @selected(($credit ?? '') === 'credit')>Credit sales</option>
+            <option value="overdue" @selected(($credit ?? '') === 'overdue')>Overdue credit</option>
+        </select>
         <select name="type" class="rounded-lg border border-slate-300 px-3 py-2 bg-white">
             <option value="">Sales &amp; returns</option>
             <option value="sale" @selected(($type ?? '') === 'sale')>Sales only</option>
@@ -28,7 +33,7 @@
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <table class="w-full text-sm">
             <thead><tr class="text-xs text-slate-500 uppercase tracking-wide border-b border-slate-100 bg-slate-50">
-                <th class="text-left px-4 py-2">Invoice</th><th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">Customer</th><th class="text-left px-4 py-2">Cashier</th><th class="text-center px-4 py-2">Status</th><th class="text-right px-4 py-2">Total</th><th class="text-center px-4 py-2">Sync</th><th></th>
+                <th class="text-left px-4 py-2">Invoice</th><th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">Customer</th><th class="text-left px-4 py-2">Cashier</th><th class="text-center px-4 py-2">Status</th><th class="text-left px-4 py-2">Due</th><th class="text-right px-4 py-2">Total</th><th class="text-center px-4 py-2">Sync</th><th></th>
             </tr></thead>
             <tbody>
                 @forelse ($invoices as $inv)
@@ -38,6 +43,7 @@
                     <td class="px-4 py-2">{{ $inv->customer?->customer_name ?? '—' }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $inv->cashier?->name ?? '—' }}</td>
                     <td class="px-4 py-2 text-center"><span class="text-xs px-2 py-0.5 rounded-full @if($inv->status==='paid')bg-green-100 text-green-700 @elseif($inv->status==='cancelled')bg-slate-200 text-slate-500 @else bg-amber-100 text-amber-700 @endif">{{ ucfirst(str_replace('_',' ',$inv->status)) }}</span></td>
+                    <td class="px-4 py-2 text-xs {{ $inv->isOverdue() ? 'text-red-600 font-semibold' : 'text-slate-500' }}">@if($inv->is_credit && $inv->due_date){{ $inv->due_date->format('M j') }}{{ $inv->isOverdue() ? ' · overdue' : '' }}@else—@endif</td>
                     <td class="px-4 py-2 text-right font-medium {{ $inv->is_return ? 'text-red-600' : '' }}">{{ $inv->is_return ? '−' : '' }}{{ \App\Support\Money::format($inv->grand_total, 2) }}</td>
                     <td class="px-4 py-2 text-center">
                         @if($inv->sync_status === 'synced')<span class="text-xs text-green-600">✓</span>
@@ -52,7 +58,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">No invoices found.</td></tr>
+                <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No invoices found.</td></tr>
                 @endforelse
             </tbody>
         </table>

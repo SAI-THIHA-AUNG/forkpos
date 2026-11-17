@@ -14,6 +14,7 @@ use App\Models\Tax;
 use App\Models\Uom;
 use App\Models\User;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -107,6 +108,39 @@ class InvoiceService
             if ($isReturn) {
                 $returnAgainst = Invoice::where('status', '!=', Invoice::STATUS_CANCELLED)
                     ->findOrFail($data['return_against_id']);
+            }
+
+            // ---- Credit terms ----------------------------------------------------
+            $isCredit = ! $isReturn && (bool) ($data['is_credit'] ?? false);
+            $creditDays = null;
+            $dueDate = null;
+            $postingDate = Carbon::parse($data['posting_datetime'] ?? now())->startOfDay();
+            if ($isCredit) {
+                if ($customer->is_walk_in) {
+                    throw ValidationException::withMessages([
+                        'customer_id' => ['Choose a customer for a credit sale — a walk-in customer cannot owe money.'],
+                    ]);
+                }
+                if (! empty($data['due_date'])) {
+                    $dueDate = Carbon::parse($data['due_date'])->startOfDay();
+                    if ($dueDate->lt($postingDate)) {
+                        throw ValidationException::withMessages([
+                            'due_date' => ['The due date cannot be before the sale date.'],
+                        ]);
+                    }
+                } elseif (! empty($data['credit_days'])) {
+                    $creditDays = (int) $data['credit_days'];
+                    if (! in_array($creditDays, Invoice::CREDIT_TERM_DAYS, true)) {
+                        throw ValidationException::withMessages([
+                            'credit_days' => ['Credit terms must be '.implode(', ', Invoice::CREDIT_TERM_DAYS).' days, or pick a due date.'],
+                        ]);
+                    }
+                    $dueDate = $postingDate->copy()->addDays($creditDays);
+                } else {
+                    throw ValidationException::withMessages([
+                        'due_date' => ['Pick the credit terms (7, 14 or 30 days) or a due date.'],
+                    ]);
+                }
             }
 
             // ---- Invoice header -------------------------------------------------
@@ -428,6 +462,12 @@ class InvoiceService
                 $customer->increment('loyalty_points', $pointsEarned);
             }
 
+            if ($isCredit && $outstanding <= 0.009) {
+                throw ValidationException::withMessages([
+                    'payments' => ['Nothing is left to put on credit — the payments already cover the total.'],
+                ]);
+            }
+
             $status = Invoice::STATUS_PAID;
             if ($outstanding > 0.009) {
                 $status = $paidAmount > 0 ? Invoice::STATUS_PARTLY_PAID : Invoice::STATUS_UNPAID;
@@ -459,6 +499,9 @@ class InvoiceService
                 'paid_amount' => round($paidAmount, $precision),
                 'change_amount' => round($changeAmount, $precision),
                 'outstanding_amount' => round($outstanding, $precision),
+                'is_credit' => $isCredit,
+                'due_date' => $dueDate?->toDateString(),
+                'credit_days' => $creditDays,
                 'coupon_discount' => round($couponDiscount, 6),
                 'loyalty_points_earned' => $pointsEarned,
             ])->save();

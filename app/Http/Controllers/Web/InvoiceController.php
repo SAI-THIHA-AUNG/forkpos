@@ -20,6 +20,11 @@ class InvoiceController extends Controller
         $query = Invoice::with(['customer', 'cashier', 'posProfile'])
             ->when($request->query('status'), fn ($q, $s) => $q->where('status', $s))
             ->when($request->query('type') === 'return', fn ($q) => $q->where('is_return', true))
+            ->when($request->query('credit') === 'credit', fn ($q) => $q->where('is_credit', true))
+            ->when($request->query('credit') === 'overdue', fn ($q) => $q->where('is_credit', true)
+                ->where('outstanding_amount', '>', 0.009)
+                ->where('status', '!=', Invoice::STATUS_CANCELLED)
+                ->whereDate('due_date', '<', today()))
             ->when($request->query('type') === 'sale', fn ($q) => $q->where('is_return', false))
             ->when($request->query('q'), function ($q, $term) {
                 $q->where(function ($w) use ($term) {
@@ -38,6 +43,7 @@ class InvoiceController extends Controller
             'q' => $request->query('q'),
             'status' => $request->query('status'),
             'type' => $request->query('type'),
+            'credit' => $request->query('credit'),
         ]);
     }
 

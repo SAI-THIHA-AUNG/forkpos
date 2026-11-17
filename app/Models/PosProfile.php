@@ -122,6 +122,9 @@ class PosProfile extends Model
     /**
      * Map an ISO 4217 currency code to a display symbol. Locale-independent
      * (no PHP intl dependency). Falls back to the raw ISO code.
+     *
+     * The symbol is prepended to the amount as-is, so Myanmar kyat carries its
+     * own trailing space ("K 2000", not "Ks2000").
      */
     public static function symbolFor(?string $currency): string
     {
@@ -129,7 +132,7 @@ class PosProfile extends Model
 
         return [
             'USD' => '$', 'EUR' => '€', 'GBP' => '£', 'JPY' => '¥', 'CNY' => '¥',
-            'MMK' => 'Ks', 'THB' => '฿', 'INR' => '₹', 'SGD' => 'S$', 'MYR' => 'RM',
+            'MMK' => 'K ', 'THB' => '฿', 'INR' => '₹', 'SGD' => 'S$', 'MYR' => 'RM',
             'PHP' => '₱', 'VND' => '₫', 'IDR' => 'Rp', 'AUD' => 'A$', 'CAD' => 'C$',
             'CHF' => 'CHF', 'AED' => 'AED', 'SAR' => 'SAR', 'KRW' => '₩', 'ZAR' => 'R',
         ][strtoupper($currency)] ?? strtoupper($currency);

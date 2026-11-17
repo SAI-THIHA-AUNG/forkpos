@@ -18,12 +18,16 @@ class Invoice extends Model
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /** Credit terms offered on the register, in days. A custom due date is allowed too. */
+    public const CREDIT_TERM_DAYS = [7, 14, 30];
+
     protected $fillable = [
         'invoice_no', 'customer_id', 'pos_profile_id', 'shift_id', 'user_id', 'status',
         'posting_datetime', 'posting_date', 'is_return', 'return_against_id',
         'total_qty', 'net_total', 'tax_total', 'discount_total', 'grand_total',
         'additional_discount_percentage', 'additional_discount_amount',
         'rounded_total', 'paid_amount', 'change_amount', 'outstanding_amount',
+        'is_credit', 'due_date', 'credit_days',
         'currency', 'price_list', 'coupon_code', 'coupon_discount',
         'loyalty_points_earned', 'loyalty_points_spent', 'offline_id', 'remarks',
         'erpnext_id', 'sync_status',
@@ -34,6 +38,9 @@ class Invoice extends Model
         return [
             'posting_datetime' => 'datetime',
             'posting_date' => 'date',
+            'due_date' => 'date',
+            'is_credit' => 'boolean',
+            'credit_days' => 'integer',
             'is_return' => 'boolean',
             'total_qty' => 'float',
             'net_total' => 'float',
@@ -100,5 +107,16 @@ class Invoice extends Model
     public function isReturn(): bool
     {
         return $this->is_return;
+    }
+
+    /** A credit sale that still has a balance past its due date. */
+    public function isOverdue(): bool
+    {
+        return $this->is_credit
+            && ! $this->is_return
+            && $this->status !== self::STATUS_CANCELLED
+            && (float) $this->outstanding_amount > 0.009
+            && $this->due_date !== null
+            && $this->due_date->lt(today());
     }
 }

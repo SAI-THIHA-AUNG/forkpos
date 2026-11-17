@@ -14,7 +14,7 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 
 ---
 
-## What is implemented (v0.4.0)
+## What is implemented (v0.5.0)
 
 | Domain | Feature |
 | --- | --- |
@@ -26,12 +26,13 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 | **Shifts** | Open shift with per-payment opening balances, cash in/out movements, live summary, close with **expected vs counted reconciliation** |
 | **Invoices** | One-call create+complete, **tax-inclusive and tax-exclusive** math, line discounts (%, amount), invoice-level (total) discount, invoice coupons, loyalty points, cancel with stock restore, **offline idempotency** (`offline_id` UUID), printable receipt |
 | **Returns** | Return against a completed sale, line by line, tracking how much of each item is still returnable. Refunds use the price actually paid (after line and total discounts), go back to the current shift's cash drawer and restore stock |
+| **Credit sales** | A customer takes goods now and pays later: 7 / 14 / 30-day terms or a picked due date, an optional down payment (cash or digital with a reference no.), overdue highlighting, and a credit/overdue filter on the invoice list |
 | **Catalog** | Items with barcodes, price lists, UOM conversions, item groups, warehouses, live stock quantities |
 | **Customers** | Search, quick-create from POS, walk-in customer, loyalty balance, customer-specific prices |
 | **Stock** | Balance per item/warehouse, ledger entries, negative-stock policy |
 | **Coupons** | Percent / fixed amount, validity window, usage limit, min order, customer-bound |
 | **Reports** | Dashboard (today: sales, payment breakdown, top items, hourly) and a daily report with date ranges, invoice / line-item / inventory-movement tabs and a **multi-sheet Excel export** (manager only) |
-| **ERPNext sync** | Profile-scoped catalog pull with delta cursors (queued, with a progress screen), scheduled profile re-sync, and invoice push back to ERPNext as **Sales Invoice documents** (`is_pos = 1`, linked to the POS profile) |
+| **ERPNext sync** | Profile-scoped catalog pull with delta cursors (queued, with a progress screen), scheduled profile re-sync, and invoice push back to ERPNext as **Sales Invoice documents** (`is_pos = 1`, linked to the POS profile). A sale fully on credit pushes as a regular Sales Invoice (`is_pos = 0`) so it carries a `due_date` |
 
 ## Quick start (first-run setup)
 
@@ -329,6 +330,8 @@ POST /api/v1/invoices
   "offline_id": "android-uuid-0001",
   "coupon_code": "WELCOME10",
   "additional_discount_percentage": 5,
+  "is_credit": true,
+  "credit_days": 14,
   "items": [
     { "item_id": 1, "qty": 5, "tax_id": 1 },
     { "item_id": 17, "qty": 2, "tax_id": 1, "rate": 6.00, "discount_percentage": 5 },
@@ -352,6 +355,11 @@ Rules the backend enforces (ERPNext-compatible math):
 - `additional_discount_percentage` / `additional_discount_amount` apply to the whole
   invoice (the amount is clamped to the tax-inclusive total) and follow the same
   profile switch and cap. The response returns both fields.
+- Credit sales: `is_credit: true` with either `credit_days` (7 / 14 / 30) or a
+  `due_date` (not before the sale date). A walk-in customer cannot be put on
+  credit, and payments already covering the total are rejected. The balance is
+  `outstanding_amount`; `is_credit`, `due_date` and `credit_days` come back in
+  the response. A down payment makes it `partly_paid`, none makes it `unpaid`.
 - **Tax-inclusive** lines: `net = amount / (1 + rate%)`, tax = the remainder.
 - `grand_total = net_total + tax_total − coupon_discount − loyalty_discount`, where
   `net_total` and `tax_total` are already reduced by the total discount.
@@ -399,14 +407,15 @@ php artisan test          # PHPUnit feature tests (in-memory SQLite)
 vendor/bin/pint --dirty   # code style
 ```
 
-The feature suite (**59 tests / 286 assertions**) covers login (password + PIN),
+The feature suite (**79 tests / 387 assertions**) covers login (password + PIN),
 first-run setup and password enforcement, profile visibility, profile-scoped
 catalog sync and delta cursors, shift open/close reconciliation, invoice math,
 rate-change and discount permissions (percent, amount, line and whole-sale, item and
 profile caps), the return workflow (remaining quantities, paid-price refunds, stock
-restore), the daily report (line detail, inventory movement, Excel export), offline
-idempotency, insufficient stock, cashier permission limits, the ERPNext push payload
-and the pull summary.
+restore), credit sales (terms, due dates, down payments, overdue and filters), the
+daily report (line detail, inventory movement, Excel export), offline idempotency,
+insufficient stock, cashier permission limits, the ERPNext push payload and the pull
+summary.
 
 ## Project layout
 
@@ -423,7 +432,7 @@ app/
                              ErpNextClient, SyncService, PosProfileSync, ProfileCatalogSync,
                              ReportService (reports + workbook)
   Support/                   PosProfileConfig (ERPNext → local field mapping), XlsxWriter
-database/migrations/         36 migrations (SQLite-first, MySQL-compatible)
+database/migrations/         37 migrations (SQLite-first, MySQL-compatible)
 database/seeders/            DatabaseSeeder (bootstrap admin) + DemoSeeder (opt-in demo data)
 routes/api.php               /api/v1 route map
 routes/web.php               Blade console route map
@@ -433,7 +442,7 @@ routes/console.php           scheduler (queue drain, catalog/profile sync, invoi
 ## Roadmap
 
 - [ ] Gift cards (original has pos_gift_card doctypes)
-- [ ] Customer credit / store payments
+- [ ] Receive payments against an existing credit balance (store payments)
 - [ ] Direct ESC/POS or QZ Tray printing (browser print view already exists)
 - [ ] Multi-currency payments
 - [ ] Batch / serial number tracking with validation
@@ -458,6 +467,10 @@ Work in versions so upstream iterations stay reviewable:
   Invoice, falling back to POS Invoice) instead of manual entry, and money/quantity
   displays stop forcing trailing decimals (ERPNext precision is still used for
   rounding).
+- **v0.5.0** — credit sales: 7 / 14 / 30-day terms or a picked due date, optional
+  down payments (cash or digital with a reference no.), overdue highlighting, a
+  credit/overdue filter on the invoice list, and ERPNext push as a regular Sales
+  Invoice (with `due_date`) when nothing is paid up front.
 
 See `CHANGELOG.md`.
 
