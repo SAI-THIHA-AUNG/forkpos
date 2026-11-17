@@ -39,6 +39,8 @@ class SettingController extends Controller
             'taxes' => $taxes,
             'erpProfiles' => $erpProfiles,
             'activeProfile' => $activeProfile,
+            'nextInvoiceNo' => ($setting->invoice_prefix ?: 'POS-').now()->year.'-'
+                .str_pad((string) $setting->next_invoice_number, 5, '0', STR_PAD_LEFT),
         ]);
     }
 
@@ -51,7 +53,6 @@ class SettingController extends Controller
             'currency_precision' => ['sometimes', 'integer', 'min:0', 'max:6'],
             'tax_inclusive_prices' => ['sometimes', 'boolean'],
             'allow_negative_stock' => ['sometimes', 'boolean'],
-            'invoice_prefix' => ['sometimes', 'string', 'max:16'],
             'receipt_header' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'receipt_footer' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'erpnext_url' => ['sometimes', 'nullable', 'url', 'max:255'],
@@ -116,11 +117,12 @@ class SettingController extends Controller
                 $profile = $this->profileSync->syncOne($name);
 
                 return back()->with('success', sprintf(
-                    'Synced "%s" — currency=%s, warehouse=%s, payments=%d.',
+                    'Synced "%s" — currency=%s, warehouse=%s, payments=%d, invoice series=%s.',
                     $profile->name,
                     $profile->currency ?: '(none)',
                     $profile->warehouse?->name ?? '(none)',
                     $profile->payments()->count(),
+                    Setting::current()->invoice_series ?: '(none)',
                 ));
             }
 

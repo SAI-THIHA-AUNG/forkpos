@@ -23,8 +23,8 @@
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Grand total</p>
-            <p class="text-2xl font-bold text-brand-700 mt-1">{{ number_format($invoices['grand_total'], 2) }}</p>
-            <p class="text-xs text-slate-500 mt-1">Net {{ number_format($invoices['net_total'], 2) }} · Tax {{ number_format($invoices['tax_total'], 2) }}</p>
+            <p class="text-2xl font-bold text-brand-700 mt-1">{{ \App\Support\Money::format($invoices['grand_total'], 2) }}</p>
+            <p class="text-xs text-slate-500 mt-1">Net {{ \App\Support\Money::format($invoices['net_total'], 2) }} · Tax {{ \App\Support\Money::format($invoices['tax_total'], 2) }}</p>
         </div>
     </div>
 
@@ -52,19 +52,19 @@
                     @foreach ($payments as $row)
                     <tr class="border-b border-slate-50">
                         <td class="px-4 py-2 font-medium text-slate-700">{{ $row['mode_of_payment'] }}</td>
-                        <td class="text-right px-4 py-2 text-slate-600">{{ number_format($row['opening_amount'], 2) }}</td>
-                        <td class="text-right px-4 py-2 text-slate-600">{{ number_format($row['collected_amount'], 2) }}</td>
-                        <td class="text-right px-4 py-2 text-green-600">+{{ number_format($row['cash_in_amount'], 2) }}</td>
-                        <td class="text-right px-4 py-2 text-red-600">−{{ number_format($row['cash_out_amount'], 2) }}</td>
-                        <td class="text-right px-4 py-2 font-semibold text-slate-800">{{ number_format($row['expected_amount'], 2) }}</td>
+                        <td class="text-right px-4 py-2 text-slate-600">{{ \App\Support\Money::format($row['opening_amount'], 2) }}</td>
+                        <td class="text-right px-4 py-2 text-slate-600">{{ \App\Support\Money::format($row['collected_amount'], 2) }}</td>
+                        <td class="text-right px-4 py-2 text-green-600">+{{ \App\Support\Money::format($row['cash_in_amount'], 2) }}</td>
+                        <td class="text-right px-4 py-2 text-red-600">−{{ \App\Support\Money::format($row['cash_out_amount'], 2) }}</td>
+                        <td class="text-right px-4 py-2 font-semibold text-slate-800">{{ \App\Support\Money::format($row['expected_amount'], 2) }}</td>
                         <td class="text-right px-4 py-2">
                             <input type="number" step="0.01" min="0" data-expected="{{ $row['expected_amount'] }}"
                                    name="payments[{{ $loop->index }}][counted_amount]"
-                                   value="{{ number_format($row['expected_amount'], 2, '.', '') }}"
+                                   value="{{ \App\Support\Money::plain($row['expected_amount'], 2) }}"
                                    class="w-28 text-right rounded border border-slate-300 px-2 py-1 no-spin counted-input">
                             <input type="hidden" name="payments[{{ $loop->index }}][mode_of_payment]" value="{{ $row['mode_of_payment'] }}">
                         </td>
-                        <td class="text-right px-4 py-2 diff-cell font-medium">0.00</td>
+                        <td class="text-right px-4 py-2 diff-cell font-medium">0</td>
                     </tr>
                     @endforeach
                 </tbody>
@@ -96,7 +96,7 @@
                     <td class="px-4 py-2"><span class="text-xs px-1.5 py-0.5 rounded {{ $m->type==='in' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">{{ ucfirst($m->type) }}</span></td>
                     <td class="px-4 py-2">{{ $m->mode_of_payment }}</td>
                     <td class="px-4 py-2 text-slate-600">{{ $m->reason ?? '—' }}</td>
-                    <td class="px-4 py-2 text-right font-medium {{ $m->type==='in' ? 'text-green-600' : 'text-red-600' }}">{{ $m->type==='in' ? '+' : '−' }}{{ number_format($m->amount, 2) }}</td>
+                    <td class="px-4 py-2 text-right font-medium {{ $m->type==='in' ? 'text-green-600' : 'text-red-600' }}">{{ $m->type==='in' ? '+' : '−' }}{{ \App\Support\Money::format($m->amount, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -135,7 +135,7 @@
             const counted = parseFloat(inp.value) || 0;
             const diff = counted - expected;
             const cell = diffs[i];
-            cell.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(2);
+            cell.textContent = (diff >= 0 ? '+' : '') + String(Number(diff.toFixed(2)));
             cell.classList.remove('text-green-600','text-red-600','text-slate-500');
             cell.classList.add(diff > 0.001 ? 'text-green-600' : diff < -0.001 ? 'text-red-600' : 'text-slate-500');
         });

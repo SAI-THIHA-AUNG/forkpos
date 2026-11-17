@@ -9,7 +9,7 @@ class Setting extends Model
 {
     protected $fillable = [
         'company_name', 'currency', 'currency_symbol', 'currency_precision',
-        'tax_inclusive_prices', 'allow_negative_stock', 'invoice_prefix',
+        'tax_inclusive_prices', 'allow_negative_stock', 'invoice_prefix', 'invoice_series',
         'next_invoice_number', 'receipt_footer', 'receipt_header',
         'erpnext_url', 'erpnext_api_key', 'erpnext_api_secret',
         'erpnext_company', 'erpnext_price_list', 'erpnext_verified_at', 'last_synced_at',

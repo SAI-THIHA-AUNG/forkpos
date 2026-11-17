@@ -4,8 +4,8 @@
 @php
     $currency = optional(request()->attributes->get('posProfile'))->effectiveCurrencySymbol() ?? '';
     $precision = 2;
-    $money = fn ($n) => number_format($n, $precision);
-    $qtyFmt = fn ($n) => rtrim(rtrim(number_format($n, 3, '.', ','), '0'), '.') ?: '0';
+    $money = fn ($n) => \App\Support\Money::format($n, $precision);
+    $qtyFmt = fn ($n) => \App\Support\Money::quantity($n);
     $label = $from === $to ? \Illuminate\Support\Carbon::parse($from)->format('D, M j, Y') : $from.' → '.$to;
     $query = fn (array $extra = []) => array_merge(request()->only(['from', 'to', 'warehouse']), ['from' => $from, 'to' => $to], $extra);
 @endphp

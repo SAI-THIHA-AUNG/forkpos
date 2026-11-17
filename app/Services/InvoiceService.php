@@ -129,7 +129,7 @@ class InvoiceService
                 'sync_status' => 'pending',
             ]);
             $invoice->posting_date = $invoice->posting_datetime->toDateString();
-            $invoice->invoice_no = $this->nextInvoiceNumber($setting, $isReturn);
+            $invoice->invoice_no = $this->nextInvoiceNumber($setting);
             $invoice->save();
 
             // ---- Items ----------------------------------------------------------
@@ -603,10 +603,12 @@ class InvoiceService
 
     /**
      * POS-YYYY-##### using a settings counter inside the current transaction.
+     * The prefix comes from the synced ERPNext naming series (see
+     * App\Services\NamingSeries), so the local number keeps ERPNext's shape.
      */
-    protected function nextInvoiceNumber(Setting $setting, bool $isReturn): string
+    protected function nextInvoiceNumber(Setting $setting): string
     {
-        $prefix = $setting->invoice_prefix.($isReturn ? 'CR-' : '').now()->year.'-';
+        $prefix = $setting->invoice_prefix.now()->year.'-';
         $seq = $setting->next_invoice_number;
         $setting->next_invoice_number = $seq + 1;
         $setting->save();

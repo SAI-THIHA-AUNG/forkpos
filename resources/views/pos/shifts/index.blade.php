@@ -30,7 +30,7 @@
                     <td class="px-4 py-2">{{ $s->user?->name }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $s->started_at?->format('M j, H:i') }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $s->closed_at?->format('M j, H:i') ?? '—' }}</td>
-                    <td class="px-4 py-2 text-right font-medium">{{ $s->closingShift ? number_format($s->closingShift->grand_total, 2) : '—' }}</td>
+                    <td class="px-4 py-2 text-right font-medium">{{ $s->closingShift ? \App\Support\Money::format($s->closingShift->grand_total, 2) : '—' }}</td>
                     <td class="px-4 py-2 text-center">
                         @if($s->status === 'open')
                         <span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Open</span>

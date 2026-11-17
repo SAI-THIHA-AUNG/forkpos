@@ -47,13 +47,13 @@
                 @foreach ($shift->closingShift->payments as $p)
                 <tr class="border-b border-slate-50">
                     <td class="px-4 py-2 font-medium">{{ $p->mode_of_payment }}</td>
-                    <td class="text-right px-4 py-2">{{ number_format($p->opening_amount, 2) }}</td>
-                    <td class="text-right px-4 py-2">{{ number_format($p->collected_amount, 2) }}</td>
-                    <td class="text-right px-4 py-2 text-green-600">+{{ number_format($p->cash_in_amount, 2) }}</td>
-                    <td class="text-right px-4 py-2 text-red-600">−{{ number_format($p->cash_out_amount, 2) }}</td>
-                    <td class="text-right px-4 py-2 font-semibold">{{ number_format($p->expected_amount, 2) }}</td>
-                    <td class="text-right px-4 py-2">{{ number_format($p->counted_amount, 2) }}</td>
-                    <td class="text-right px-4 py-2 font-medium {{ $p->difference > 0.001 ? 'text-green-600' : ($p->difference < -0.001 ? 'text-red-600' : 'text-slate-500') }}">{{ $p->difference >= 0 ? '+' : '' }}{{ number_format($p->difference, 2) }}</td>
+                    <td class="text-right px-4 py-2">{{ \App\Support\Money::format($p->opening_amount, 2) }}</td>
+                    <td class="text-right px-4 py-2">{{ \App\Support\Money::format($p->collected_amount, 2) }}</td>
+                    <td class="text-right px-4 py-2 text-green-600">+{{ \App\Support\Money::format($p->cash_in_amount, 2) }}</td>
+                    <td class="text-right px-4 py-2 text-red-600">−{{ \App\Support\Money::format($p->cash_out_amount, 2) }}</td>
+                    <td class="text-right px-4 py-2 font-semibold">{{ \App\Support\Money::format($p->expected_amount, 2) }}</td>
+                    <td class="text-right px-4 py-2">{{ \App\Support\Money::format($p->counted_amount, 2) }}</td>
+                    <td class="text-right px-4 py-2 font-medium {{ $p->difference > 0.001 ? 'text-green-600' : ($p->difference < -0.001 ? 'text-red-600' : 'text-slate-500') }}">{{ $p->difference >= 0 ? '+' : '' }}{{ \App\Support\Money::format($p->difference, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -71,8 +71,8 @@
                 @foreach ($shift->closingShift->taxes as $t)
                 <tr class="border-b border-slate-50">
                     <td class="px-4 py-2">{{ $t->description }}</td>
-                    <td class="text-right px-4 py-2">{{ number_format($t->rate, 2) }}%</td>
-                    <td class="text-right px-4 py-2 font-medium">{{ number_format($t->amount, 2) }}</td>
+                    <td class="text-right px-4 py-2">{{ \App\Support\Money::format($t->rate, 2) }}%</td>
+                    <td class="text-right px-4 py-2 font-medium">{{ \App\Support\Money::format($t->amount, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -95,7 +95,7 @@
                     <td class="px-4 py-2"><span class="text-xs px-1.5 py-0.5 rounded {{ $m->type==='in' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' }}">{{ ucfirst($m->type) }}</span></td>
                     <td class="px-4 py-2">{{ $m->mode_of_payment }}</td>
                     <td class="px-4 py-2 text-slate-600">{{ $m->reason ?? '—' }}</td>
-                    <td class="px-4 py-2 text-right font-medium {{ $m->type==='in' ? 'text-green-600' : 'text-red-600' }}">{{ $m->type==='in' ? '+' : '−' }}{{ number_format($m->amount, 2) }}</td>
+                    <td class="px-4 py-2 text-right font-medium {{ $m->type==='in' ? 'text-green-600' : 'text-red-600' }}">{{ $m->type==='in' ? '+' : '−' }}{{ \App\Support\Money::format($m->amount, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>

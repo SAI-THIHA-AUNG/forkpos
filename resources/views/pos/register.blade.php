@@ -59,8 +59,8 @@
         </div>
 
         <div class="border-t border-slate-100 px-4 py-3 space-y-1.5 text-sm">
-            <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span id="subtotal">{{ $currency }}0.00</span></div>
-            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span id="discount" class="text-red-600">{{ $currency }}0.00</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span id="subtotal">{{ $currency }}0</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span id="discount" class="text-red-600">{{ $currency }}0</span></div>
             @if ($profile->allow_discount_change)
             <div class="flex items-center justify-between gap-2">
                 <span class="text-slate-500">Total discount</span>
@@ -71,12 +71,12 @@
                     </select>
                     <input id="addl-value" type="number" min="0" step="0.01" placeholder="0" title="Discount on the whole sale"
                            class="w-20 text-right rounded border border-slate-200 px-1.5 py-0.5 text-sm no-spin">
-                    <span id="addl-amount" class="w-24 text-right text-red-600">{{ $currency }}0.00</span>
+                    <span id="addl-amount" class="w-24 text-right text-red-600">{{ $currency }}0</span>
                 </div>
             </div>
             @endif
-            <div class="flex justify-between"><span class="text-slate-500">Tax</span><span id="tax">{{ $currency }}0.00</span></div>
-            <div class="flex justify-between font-bold text-lg border-t border-slate-100 pt-2"><span>Total</span><span id="grand">{{ $currency }}0.00</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Tax</span><span id="tax">{{ $currency }}0</span></div>
+            <div class="flex justify-between font-bold text-lg border-t border-slate-100 pt-2"><span>Total</span><span id="grand">{{ $currency }}0</span></div>
         </div>
 
         <div class="border-t border-slate-100 px-4 py-3 space-y-2">
@@ -92,7 +92,7 @@
             </div>
             <button id="add-payment" class="mt-2 text-xs text-brand-600 hover:underline">+ Add payment method</button>
 
-            <div class="flex justify-between text-sm mt-3"><span>Change / outstanding</span><span id="change" class="font-medium">{{ $currency }}0.00</span></div>
+            <div class="flex justify-between text-sm mt-3"><span>Change / outstanding</span><span id="change" class="font-medium">{{ $currency }}0</span></div>
         </div>
 
         <div class="border-t border-slate-100 p-3">
@@ -145,6 +145,9 @@ const SEED_ITEMS = @json($seedItemsPayload);
 const GROUPS = @json($groupsPayload);
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+// ERPNext gives the precision; ForkPOS hides forced decimals in the UI:
+// 1,200.00 -> "1200", 1.25 -> "1.25". Math still uses the raw numbers.
+const fmtAmount = n => String(Number((Number(n) || 0).toFixed(PRECISION)));
 let GRAND = 0;                                   // current invoice total (number)
 let addlDiscount = { type: 'percentage', value: 0 }; // whole-sale discount
 
@@ -191,7 +194,7 @@ function renderCardItem(i) {
             <div class="aspect-square mb-2 rounded bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-400 text-2xl font-bold">${i.item_name.charAt(0)}</div>
             <p class="text-xs font-medium text-slate-700 line-clamp-2 group-hover:text-brand-700">${esc(i.item_name)}</p>
             <div class="flex items-center justify-between mt-1">
-                <span class="text-sm font-semibold text-brand-700">${CURRENCY}${i.rate.toFixed(PRECISION)}</span>
+                <span class="text-sm font-semibold text-brand-700">${CURRENCY}${fmtAmount(i.rate)}</span>
                 ${i.is_stock_item ? `<span class="text-[10px] ${i.stock_qty > 0 ? 'text-green-600' : 'text-red-500'}">${i.stock_qty > 0 ? i.stock_qty+' '+i.uom : 'out'}</span>` : ''}
             </div>
         </button>
@@ -206,7 +209,7 @@ function renderListItem(i) {
                 <span class="block text-sm font-medium text-slate-700 truncate">${esc(i.item_name)}</span>
                 <span class="block text-xs text-slate-400 truncate">${esc(i.item_code)}</span>
             </span>
-            <span class="text-sm font-semibold text-brand-700 shrink-0">${CURRENCY}${i.rate.toFixed(PRECISION)}</span>
+            <span class="text-sm font-semibold text-brand-700 shrink-0">${CURRENCY}${fmtAmount(i.rate)}</span>
             ${i.is_stock_item ? `<span class="text-[10px] ${i.stock_qty > 0 ? 'text-green-600' : 'text-red-500'} shrink-0 w-12 text-right">${i.stock_qty > 0 ? i.stock_qty+' '+i.uom : 'out'}</span>` : ''}
         </button>
     `;
@@ -321,11 +324,11 @@ function renderCart() {
                 <div class="flex items-start gap-2">
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-medium text-slate-800 leading-snug break-words">${esc(c.item_name)}</p>
-                        <p class="text-xs text-slate-500">${CURRENCY}${c.rate.toFixed(PRECISION)} / ${esc(c.uom)}
+                        <p class="text-xs text-slate-500">${CURRENCY}${fmtAmount(c.rate)} / ${esc(c.uom)}
                             ${c.discount_value > 0 && c.allow_discount ? `<span class="text-red-600">−${c.discount_type === 'percentage' ? c.discount_value + '%' : CURRENCY + c.discount_value}</span>` : ''}
                         </p>
                     </div>
-                    <span data-line-amount="${i}" class="text-sm font-semibold text-slate-800 whitespace-nowrap">${CURRENCY}${lineNet(c).toFixed(PRECISION)}</span>
+                    <span data-line-amount="${i}" class="text-sm font-semibold text-slate-800 whitespace-nowrap">${CURRENCY}${fmtAmount(lineNet(c))}</span>
                     <button data-remove="${i}" title="Remove" class="text-slate-300 hover:text-red-500 leading-none px-1">✕</button>
                 </div>
                 <div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -414,7 +417,7 @@ function recalcTotals() {
         }
         net += n; tax += t;
         const lineEl = document.querySelector(`[data-line-amount="${i}"]`);
-        if (lineEl) lineEl.textContent = CURRENCY + amount.toFixed(PRECISION);
+        if (lineEl) lineEl.textContent = CURRENCY + fmtAmount(amount);
     });
 
     const pre = net + tax;
@@ -428,12 +431,12 @@ function recalcTotals() {
     tax *= keep;
     GRAND = net * keep + tax;
 
-    document.getElementById('subtotal').textContent = CURRENCY + gross.toFixed(PRECISION);
-    document.getElementById('discount').textContent = (lineDisc > 0 ? '−' : '') + CURRENCY + lineDisc.toFixed(PRECISION);
+    document.getElementById('subtotal').textContent = CURRENCY + fmtAmount(gross);
+    document.getElementById('discount').textContent = (lineDisc > 0 ? '−' : '') + CURRENCY + fmtAmount(lineDisc);
     const addlEl = document.getElementById('addl-amount');
-    if (addlEl) addlEl.textContent = (addl > 0 ? '−' : '') + CURRENCY + addl.toFixed(PRECISION);
-    document.getElementById('tax').textContent = CURRENCY + tax.toFixed(PRECISION);
-    document.getElementById('grand').textContent = CURRENCY + GRAND.toFixed(PRECISION);
+    if (addlEl) addlEl.textContent = (addl > 0 ? '−' : '') + CURRENCY + fmtAmount(addl);
+    document.getElementById('tax').textContent = CURRENCY + fmtAmount(tax);
+    document.getElementById('grand').textContent = CURRENCY + fmtAmount(GRAND);
     autofillSinglePayment();
 }
 
@@ -477,7 +480,7 @@ function renderPayments() {
             <select data-pay-mode="${i}" class="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm bg-white">
                 ${PAYMENT_MODES.map(m => `<option ${m.mode_of_payment===p.mode_of_payment?'selected':''}>${m.mode_of_payment}</option>`).join('')}
             </select>
-            <input type="number" step="0.01" min="0" data-pay-amount="${i}" value="${p.amount || ''}" placeholder="0.00" class="w-24 text-right rounded border border-slate-300 px-2 py-1.5 text-sm no-spin">
+            <input type="number" step="0.01" min="0" data-pay-amount="${i}" value="${p.amount || ''}" placeholder="0" class="w-24 text-right rounded border border-slate-300 px-2 py-1.5 text-sm no-spin">
             ${payments.length > 1 ? `<button data-pay-remove="${i}" class="text-slate-300 hover:text-red-500">×</button>` : ''}
         </div>
     `).join('');
@@ -505,10 +508,10 @@ function recalcChange() {
     const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
     const diff = paid - grand;
     const el = document.getElementById('change');
-    el.textContent = CURRENCY + Math.abs(diff).toFixed(PRECISION);
+    el.textContent = CURRENCY + fmtAmount(Math.abs(diff));
     el.classList.remove('text-green-600','text-red-600','text-slate-500');
     el.classList.add(diff >= 0 ? 'text-green-600' : 'text-red-600');
-    el.textContent = (diff >= 0 ? 'Change: ' : 'Due: ') + CURRENCY + Math.abs(diff).toFixed(PRECISION);
+    el.textContent = (diff >= 0 ? 'Change: ' : 'Due: ') + CURRENCY + fmtAmount(Math.abs(diff));
 }
 document.getElementById('add-payment').addEventListener('click', () => {
     payments.push(defaultPaymentRow());

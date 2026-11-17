@@ -16,7 +16,7 @@
     <div class="grid grid-cols-3 gap-3 mb-6">
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Total spent</p>
-            <p class="text-2xl font-bold text-brand-700 mt-1">{{ number_format($totalSpent, 2) }}</p>
+            <p class="text-2xl font-bold text-brand-700 mt-1">{{ \App\Support\Money::format($totalSpent, 2) }}</p>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Invoices</p>
@@ -49,7 +49,7 @@
                     <td class="px-4 py-2 font-mono text-xs"><a href="{{ route('invoices.show', $inv) }}" class="text-brand-600 hover:underline">{{ $inv->invoice_no }}</a></td>
                     <td class="px-4 py-2 text-slate-500">{{ $inv->posting_datetime?->format('M j, Y H:i') }}</td>
                     <td class="px-4 py-2"><span class="text-xs px-2 py-0.5 rounded-full @if($inv->status==='paid')bg-green-100 text-green-700 @elseif($inv->status==='cancelled')bg-slate-200 text-slate-500 @else bg-amber-100 text-amber-700 @endif">{{ ucfirst(str_replace('_',' ',$inv->status)) }}</span></td>
-                    <td class="px-4 py-2 text-right font-medium">{{ number_format($inv->grand_total, 2) }}</td>
+                    <td class="px-4 py-2 text-right font-medium">{{ \App\Support\Money::format($inv->grand_total, 2) }}</td>
                 </tr>
                 @empty
                 <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400 text-sm">No invoices yet.</td></tr>

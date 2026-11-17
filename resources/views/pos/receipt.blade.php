@@ -48,11 +48,11 @@
                     <td class="py-1">
                         <p>{{ $line->item_name }}</p>
                         <p class="text-[10px] text-slate-400">{{ $line->item_code }} · {{ $line->uom }}
-                        @if($line->discount_amount > 0) · disc {{ $currency }}{{ number_format($line->discount_amount, $precision) }}@endif</p>
+                        @if($line->discount_amount > 0) · disc {{ $currency }}{{ \App\Support\Money::format($line->discount_amount, $precision) }}@endif</p>
                     </td>
-                    <td class="text-center py-1">{{ number_format($line->qty, $precision) }}</td>
-                    <td class="text-right py-1">{{ number_format($line->rate, $precision) }}</td>
-                    <td class="text-right py-1 font-medium">{{ number_format($line->amount, $precision) }}</td>
+                    <td class="text-center py-1">{{ \App\Support\Money::quantity($line->qty) }}</td>
+                    <td class="text-right py-1">{{ \App\Support\Money::format($line->rate, $precision) }}</td>
+                    <td class="text-right py-1 font-medium">{{ \App\Support\Money::format($line->amount, $precision) }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -63,34 +63,34 @@
                 $lineDiscounts = max(0, $invoice->discount_total - $invoice->additional_discount_amount);
                 $linesBeforeDiscount = $invoice->items->sum('amount') + $lineDiscounts;
             @endphp
-            <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span>{{ $currency }}{{ number_format($linesBeforeDiscount, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span>{{ $currency }}{{ \App\Support\Money::format($linesBeforeDiscount, $precision) }}</span></div>
             @if ($lineDiscounts > 0)
-            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span class="text-red-600">−{{ $currency }}{{ number_format($lineDiscounts, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Line discounts</span><span class="text-red-600">−{{ $currency }}{{ \App\Support\Money::format($lineDiscounts, $precision) }}</span></div>
             @endif
             @if ($invoice->additional_discount_amount > 0)
-            <div class="flex justify-between"><span class="text-slate-500">Total discount</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->additional_discount_amount, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Total discount</span><span class="text-red-600">−{{ $currency }}{{ \App\Support\Money::format($invoice->additional_discount_amount, $precision) }}</span></div>
             @endif
             @if ($invoice->coupon_discount > 0)
-            <div class="flex justify-between"><span class="text-slate-500">Coupon ({{ $invoice->coupon_code }})</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->coupon_discount, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Coupon ({{ $invoice->coupon_code }})</span><span class="text-red-600">−{{ $currency }}{{ \App\Support\Money::format($invoice->coupon_discount, $precision) }}</span></div>
             @endif
             @if ($invoice->loyalty_points_spent > 0)
-            <div class="flex justify-between"><span class="text-slate-500">Loyalty ({{ $invoice->loyalty_points_spent }} pts)</span><span class="text-red-600">−{{ $currency }}{{ number_format($invoice->loyalty_points_spent, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Loyalty ({{ $invoice->loyalty_points_spent }} pts)</span><span class="text-red-600">−{{ $currency }}{{ \App\Support\Money::format($invoice->loyalty_points_spent, $precision) }}</span></div>
             @endif
             @foreach ($invoice->taxes as $t)
-            <div class="flex justify-between"><span class="text-slate-500">{{ $t->description }} ({{ number_format($t->rate, 2) }}%) {{ $t->included_in_price ? '(incl.)' : '' }}</span><span>{{ $currency }}{{ number_format($t->amount, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">{{ $t->description }} ({{ \App\Support\Money::format($t->rate, 2) }}%) {{ $t->included_in_price ? '(incl.)' : '' }}</span><span>{{ $currency }}{{ \App\Support\Money::format($t->amount, $precision) }}</span></div>
             @endforeach
-            <div class="flex justify-between font-bold text-base border-t border-slate-300 pt-2"><span>Total</span><span>{{ $currency }}{{ number_format($invoice->grand_total, $precision) }}</span></div>
+            <div class="flex justify-between font-bold text-base border-t border-slate-300 pt-2"><span>Total</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->grand_total, $precision) }}</span></div>
         </div>
 
         <div class="border-t border-dashed border-slate-300 mt-3 pt-3 text-sm space-y-1">
             @foreach ($invoice->payments as $p)
-            <div class="flex justify-between"><span class="text-slate-500">{{ $p->mode_of_payment }}</span><span>{{ $currency }}{{ number_format($p->amount, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">{{ $p->mode_of_payment }}</span><span>{{ $currency }}{{ \App\Support\Money::format($p->amount, $precision) }}</span></div>
             @endforeach
             @if ($invoice->change_amount > 0)
-            <div class="flex justify-between"><span class="text-slate-500">Change</span><span>{{ $currency }}{{ number_format($invoice->change_amount, $precision) }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Change</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->change_amount, $precision) }}</span></div>
             @endif
             @if ($invoice->outstanding_amount > 0.001)
-            <div class="flex justify-between text-red-600 font-semibold"><span>Outstanding</span><span>{{ $currency }}{{ number_format($invoice->outstanding_amount, $precision) }}</span></div>
+            <div class="flex justify-between text-red-600 font-semibold"><span>Outstanding</span><span>{{ $currency }}{{ \App\Support\Money::format($invoice->outstanding_amount, $precision) }}</span></div>
             @endif
         </div>
 

@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [0.4.0] — 2026-11-17
+
+Invoice numbering is owned by ERPNext, and money/quantity displays stop forcing
+trailing decimals.
+
+### Added
+- `NamingSeries` service: resolves the ERPNext document naming series for the
+  **Sales Invoice** DocType (falling back to **POS Invoice**), preferring the
+  DocType `naming_series` field and falling back to the newest document's series.
+  It derives the literal prefix (`ACC-SINV-.YYYY.-` → `ACC-SINV-`).
+- `Money` support class (`format`, `quantity`, `plain`) used across all Blade
+  money/quantity output.
+
+### Changed
+- `PosProfileSync` now mirrors the ERPNext naming series onto settings
+  (`invoice_series` + derived `invoice_prefix`) once per sync; the prefix is no
+  longer editable on the Settings page and is shown read-only with the next
+  invoice number.
+- `InvoiceService` builds local numbers from the synced prefix (`prefix-YYYY-#####`)
+  and drops the old `CR-` return infix so numbers mirror ERPNext's shape.
+- Money and quantity displays trim trailing zeros (ERPNext precision is still used
+  for rounding): `1,200` instead of `1,200.00`, `1.25` unchanged. The register,
+  receipt, invoices, dashboard, shifts, customers and settings screens all use the
+  new formatter.
+- `settings.invoice_prefix` widened to 40 chars (default preserved) and new
+  `settings.invoice_series` column.
+
 ## [0.3.0] — 2026-11-17
 
 Register total discount, a proper returns workflow and a report/export screen.

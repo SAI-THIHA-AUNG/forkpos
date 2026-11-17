@@ -35,7 +35,7 @@
             @foreach ($activeProfile['payments'] ?? [] as $pay)
             <div class="flex items-center gap-3">
                 <label class="w-40 text-sm text-slate-600">{{ $pay['mode_of_payment'] }}</label>
-                <input type="number" step="0.01" min="0" name="balances[{{ $loop->index }}][amount]" value="0" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 no-spin" placeholder="0.00">
+                <input type="number" step="0.01" min="0" name="balances[{{ $loop->index }}][amount]" value="0" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 no-spin" placeholder="0">
                 <input type="hidden" name="balances[{{ $loop->index }}][mode_of_payment]" value="{{ $pay['mode_of_payment'] }}">
                 @if($pay['is_default'])<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">default</span>@endif
             </div>
@@ -62,7 +62,7 @@
     const rowsTemplate = (payments) => payments.map((p, i) => `
         <div class="flex items-center gap-3">
             <label class="w-40 text-sm text-slate-600">${p.mode_of_payment}</label>
-            <input type="number" step="0.01" min="0" name="balances[${i}][amount]" value="0" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 no-spin" placeholder="0.00">
+            <input type="number" step="0.01" min="0" name="balances[${i}][amount]" value="0" class="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 no-spin" placeholder="0">
             <input type="hidden" name="balances[${i}][mode_of_payment]" value="${p.mode_of_payment}">
             ${p.is_default ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">default</span>' : ''}
         </div>`).join('');

@@ -4,7 +4,7 @@
 @php
     $currency = \App\Models\PosProfile::symbolFor($invoice->currency);
     $precision = 2;
-    $fmt = fn ($n) => rtrim(rtrim(number_format($n, 3, '.', ''), '0'), '.');
+    $fmt = fn ($n) => \App\Support\Money::quantity($n);
 @endphp
 
 @section('content')
@@ -52,7 +52,7 @@
                     <td class="text-right px-2 py-2 text-slate-600">{{ $fmt($line['sold']) }}</td>
                     <td class="text-right px-2 py-2 text-slate-600">{{ $fmt($line['returned']) }}</td>
                     <td class="text-right px-2 py-2 font-medium">{{ $fmt($line['remaining']) }}</td>
-                    <td class="text-right px-2 py-2">{{ number_format($unit, $precision) }}</td>
+                    <td class="text-right px-2 py-2">{{ \App\Support\Money::format($unit, $precision) }}</td>
                     <td class="text-center px-2 py-2">
                         <input type="hidden" name="items[{{ $idx }}][item_id]" value="{{ $line['item_id'] }}">
                         <div class="inline-flex items-center gap-1">
@@ -66,13 +66,13 @@
                             @endif
                         </div>
                     </td>
-                    <td class="text-right px-2 py-2 font-medium line-refund">{{ number_format(0, $precision) }}</td>
+                    <td class="text-right px-2 py-2 font-medium line-refund">{{ \App\Support\Money::format(0, $precision) }}</td>
                 </tr>
                 @endforeach
             </tbody>
             <tfoot>
                 <tr><td colspan="6" class="text-right px-2 py-2 font-semibold">Total refund</td>
-                    <td class="text-right px-2 py-2 font-bold text-amber-700" id="refund-total">{{ $currency }}0.00</td></tr>
+                    <td class="text-right px-2 py-2 font-bold text-amber-700" id="refund-total">{{ $currency }}0</td></tr>
             </tfoot>
         </table>
         </div>
@@ -111,6 +111,8 @@
 <script>
 (function () {
     const CURRENCY = @json($currency);
+    // Trim forced decimals for display: 4.00 -> 4, 2.16 -> 2.16.
+    const fmt = (n) => String(Number(n.toFixed(2)));
     const qtyInputs = [...document.querySelectorAll('.return-qty')];
     const amountEl = document.getElementById('refund-amount');
     let amountTouched = false;
@@ -124,11 +126,11 @@
             if (q > max) { q = max; inp.value = q; }
             if (q < 0) { q = 0; inp.value = 0; }
             const line = q * (parseFloat(inp.dataset.unit) || 0);
-            inp.closest('tr').querySelector('.line-refund').textContent = line.toFixed(2);
+            inp.closest('tr').querySelector('.line-refund').textContent = fmt(line);
             total += line;
         });
-        document.getElementById('refund-total').textContent = CURRENCY + total.toFixed(2);
-        if (!amountTouched) amountEl.value = total.toFixed(2);
+        document.getElementById('refund-total').textContent = CURRENCY + fmt(total);
+        if (!amountTouched) amountEl.value = fmt(total);
         document.getElementById('return-submit').disabled = !(total > 0);
     }
     qtyInputs.forEach(inp => inp.addEventListener('input', recalc));

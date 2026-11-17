@@ -24,15 +24,15 @@
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Gross sales</p>
-            <p class="text-2xl font-bold text-brand-700 mt-1">{{ $currency }}{{ number_format($sales->gross_sales, $precision) }}</p>
+            <p class="text-2xl font-bold text-brand-700 mt-1">{{ $currency }}{{ \App\Support\Money::format($sales->gross_sales, $precision) }}</p>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Returns</p>
-            <p class="text-2xl font-bold text-red-600 mt-1">{{ $currency }}{{ number_format(abs($sales->returns_total), $precision) }}</p>
+            <p class="text-2xl font-bold text-red-600 mt-1">{{ $currency }}{{ \App\Support\Money::format(abs($sales->returns_total), $precision) }}</p>
         </div>
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <p class="text-xs text-slate-500 uppercase tracking-wide">Grand total</p>
-            <p class="text-2xl font-bold text-green-700 mt-1">{{ $currency }}{{ number_format($sales->grand_total, $precision) }}</p>
+            <p class="text-2xl font-bold text-green-700 mt-1">{{ $currency }}{{ \App\Support\Money::format($sales->grand_total, $precision) }}</p>
         </div>
     </div>
 
@@ -46,7 +46,7 @@
                 @php $max = $paymentBreakdown->max() ?: 1; @endphp
                 @foreach ($paymentBreakdown as $mode => $total)
                 <div>
-                    <div class="flex justify-between text-sm mb-0.5"><span class="text-slate-600">{{ $mode }}</span><span class="font-medium">{{ $currency }}{{ number_format($total, $precision) }}</span></div>
+                    <div class="flex justify-between text-sm mb-0.5"><span class="text-slate-600">{{ $mode }}</span><span class="font-medium">{{ $currency }}{{ \App\Support\Money::format($total, $precision) }}</span></div>
                     <div class="h-2 rounded bg-slate-100 overflow-hidden"><div class="h-full bg-brand-500" style="width: {{ ($total / $max) * 100 }}%"></div></div>
                 </div>
                 @endforeach
@@ -57,10 +57,10 @@
         <div class="bg-white rounded-xl border border-slate-200 p-4">
             <h2 class="font-semibold text-slate-700 mb-3">Tax &amp; totals</h2>
             <div class="space-y-1 text-sm">
-                <div class="flex justify-between"><span class="text-slate-500">Net total</span><span>{{ $currency }}{{ number_format($sales->net_total, $precision) }}</span></div>
-                <div class="flex justify-between"><span class="text-slate-500">Tax total</span><span>{{ $currency }}{{ number_format($sales->tax_total, $precision) }}</span></div>
-                <div class="flex justify-between"><span class="text-slate-500">Discounts given</span><span class="text-red-600">−{{ $currency }}{{ number_format($sales->discount_total, $precision) }}</span></div>
-                <div class="flex justify-between font-bold border-t border-slate-100 pt-1"><span>Grand total</span><span>{{ $currency }}{{ number_format($sales->grand_total, $precision) }}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Net total</span><span>{{ $currency }}{{ \App\Support\Money::format($sales->net_total, $precision) }}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Tax total</span><span>{{ $currency }}{{ \App\Support\Money::format($sales->tax_total, $precision) }}</span></div>
+                <div class="flex justify-between"><span class="text-slate-500">Discounts given</span><span class="text-red-600">−{{ $currency }}{{ \App\Support\Money::format($sales->discount_total, $precision) }}</span></div>
+                <div class="flex justify-between font-bold border-t border-slate-100 pt-1"><span>Grand total</span><span>{{ $currency }}{{ \App\Support\Money::format($sales->grand_total, $precision) }}</span></div>
             </div>
         </div>
     </div>
@@ -78,8 +78,8 @@
                 @foreach ($topItems as $i)
                 <tr class="border-b border-slate-50">
                     <td class="px-4 py-2"><p class="font-medium">{{ $i->item_name }}</p><p class="text-xs text-slate-400">{{ $i->item_code }}</p></td>
-                    <td class="text-right px-4 py-2">{{ number_format($i->sold, $precision) }}</td>
-                    <td class="text-right px-4 py-2 font-medium">{{ $currency }}{{ number_format($i->revenue, $precision) }}</td>
+                    <td class="text-right px-4 py-2">{{ \App\Support\Money::quantity($i->sold) }}</td>
+                    <td class="text-right px-4 py-2 font-medium">{{ $currency }}{{ \App\Support\Money::format($i->revenue, $precision) }}</td>
                 </tr>
                 @endforeach
             </tbody>

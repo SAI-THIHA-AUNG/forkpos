@@ -38,7 +38,7 @@
                     <td class="px-4 py-2">{{ $inv->customer?->customer_name ?? '—' }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $inv->cashier?->name ?? '—' }}</td>
                     <td class="px-4 py-2 text-center"><span class="text-xs px-2 py-0.5 rounded-full @if($inv->status==='paid')bg-green-100 text-green-700 @elseif($inv->status==='cancelled')bg-slate-200 text-slate-500 @else bg-amber-100 text-amber-700 @endif">{{ ucfirst(str_replace('_',' ',$inv->status)) }}</span></td>
-                    <td class="px-4 py-2 text-right font-medium {{ $inv->is_return ? 'text-red-600' : '' }}">{{ $inv->is_return ? '−' : '' }}{{ number_format($inv->grand_total, 2) }}</td>
+                    <td class="px-4 py-2 text-right font-medium {{ $inv->is_return ? 'text-red-600' : '' }}">{{ $inv->is_return ? '−' : '' }}{{ \App\Support\Money::format($inv->grand_total, 2) }}</td>
                     <td class="px-4 py-2 text-center">
                         @if($inv->sync_status === 'synced')<span class="text-xs text-green-600">✓</span>
                         @elseif($inv->sync_status === 'failed')<span class="text-xs text-red-500" title="{{ $inv->erpnext_id }}">!</span>

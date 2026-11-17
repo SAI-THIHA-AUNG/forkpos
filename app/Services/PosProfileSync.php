@@ -43,7 +43,13 @@ use Throwable;
  */
 class PosProfileSync
 {
-    public function __construct(protected ErpNextClient $client) {}
+    /** The naming series is store-wide: resolve it once per service instance. */
+    protected bool $seriesResolved = false;
+
+    public function __construct(
+        protected ErpNextClient $client,
+        protected NamingSeries $namingSeries,
+    ) {}
 
     /**
      * Pull every non-disabled POS Profile from ERPNext.
@@ -159,8 +165,45 @@ class PosProfileSync
         });
 
         $this->mirrorStoreDefaults($doc);
+        $this->mirrorInvoiceSeries();
 
         return $profile;
+    }
+
+    /**
+     * Invoice numbering is ERPNext's: read the Sales Invoice (fallback: POS
+     * Invoice) naming series and keep the derived prefix on settings. Runs once
+     * per sync batch, and only when the connector answers.
+     */
+    protected function mirrorInvoiceSeries(): void
+    {
+        if ($this->seriesResolved) {
+            return;
+        }
+        $this->seriesResolved = true;
+
+        $series = $this->namingSeries->invoiceSeries();
+        if (! $series) {
+            return;
+        }
+
+        $prefix = NamingSeries::prefix($series);
+        $setting = Setting::current();
+        $changes = [];
+
+        if ($setting->invoice_series !== $series) {
+            $changes['invoice_series'] = $series;
+        }
+        if ($prefix !== '' && $setting->invoice_prefix !== $prefix) {
+            $changes['invoice_prefix'] = $prefix;
+        }
+
+        if (! $changes) {
+            return;
+        }
+
+        $setting->fill($changes)->save();
+        Setting::flushCache();
     }
 
     /**

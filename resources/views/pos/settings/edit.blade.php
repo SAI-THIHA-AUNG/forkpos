@@ -81,6 +81,14 @@
                 <dt class="text-xs uppercase tracking-wide text-slate-400">Allow negative stock</dt>
                 <dd class="font-medium {{ $negativeStock ? 'text-slate-800' : 'text-slate-500' }}">{{ $negativeStock ? 'Yes' : 'No' }}</dd>
             </div>
+            <div>
+                <dt class="text-xs uppercase tracking-wide text-slate-400">Invoice series (ERPNext)</dt>
+                <dd class="font-medium font-mono text-slate-800">{{ $setting->invoice_series ?: '—' }}</dd>
+            </div>
+            <div>
+                <dt class="text-xs uppercase tracking-wide text-slate-400">Next invoice no.</dt>
+                <dd class="font-medium font-mono text-slate-800">{{ $nextInvoiceNo }}</dd>
+            </div>
         </dl>
 
         @if ($activeProfile)
@@ -99,11 +107,18 @@
 
         <div class="bg-white rounded-xl border border-slate-200 p-6">
             <h2 class="font-semibold text-slate-700 mb-1">Invoicing &amp; receipt</h2>
-            <p class="text-xs text-slate-500 mb-3">Local terminal preferences &mdash; these are not stored in ERPNext.</p>
+            <p class="text-xs text-slate-500 mb-3">
+                Receipt text is a local terminal preference. Invoice numbering is <strong>not editable</strong> —
+                the prefix comes from the ERPNext document naming series (Sales Invoice, or POS Invoice) and
+                refreshes when a POS Profile is synced.
+            </p>
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">Invoice prefix</label>
-                    <input type="text" name="invoice_prefix" value="{{ old('invoice_prefix', $setting->invoice_prefix) }}" placeholder="POS-" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                    <div class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-slate-700">
+                        {{ $setting->invoice_prefix ?: '—' }}
+                        <span class="ml-1 font-sans text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 align-middle">ERPNext</span>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">Receipt header</label>
@@ -160,7 +175,7 @@
                     @foreach ($taxes as $t)
                     <tr class="border-b border-slate-50">
                         <td class="py-2"><p class="font-medium">{{ $t->name }}</p><p class="text-xs text-slate-400">{{ $t->description }}</p></td>
-                        <td class="text-right py-2">{{ number_format($t->rate, 2) }}%</td>
+                        <td class="text-right py-2">{{ \App\Support\Money::format($t->rate, 2) }}%</td>
                         <td class="text-center py-2">{{ $t->included_in_price ? 'Yes' : 'No' }}</td>
                         <td class="text-center py-2">{{ $t->is_default ? 'default' : '' }}</td>
                     </tr>

@@ -14,7 +14,7 @@ Laravel 13.42 · PHP 8.4 · SQLite 3 (default) / MySQL 8 (optional) · Sanctum t
 
 ---
 
-## What is implemented (v0.3.0)
+## What is implemented (v0.4.0)
 
 | Domain | Feature |
 | --- | --- |
@@ -107,7 +107,7 @@ All migrations use portable types; the app was developed and tested on SQLite fi
 | `/dashboard`, `/dashboard/daily` | Today's dashboard; daily report with date range, invoice / line-item / inventory-movement tabs and Excel export for managers |
 | `/customers` | Search, create, edit (loyalty + territory) |
 | `/sync` | Connector health, pull masters, push pending invoices, recent failures |
-| `/settings` | Read-only ERPNext "store defaults" (company/currency/price list/flags) plus local invoice prefix and receipt text |
+| `/settings` | Read-only ERPNext "store defaults" (company/currency/price list/flags, invoice numbering series) plus local receipt text |
 | `/users` | Manager-only user list, roles and PIN assignment |
 
 The header keeps **Back**/**Home** shortcuts and a role-filtered top bar, so a
@@ -185,6 +185,14 @@ and re-maps everything ERPNext owns:
 The profile's company, currency (+symbol/precision from the ERPNext `Currency`
 document) and selling price list are mirrored onto the single settings row, so
 receipts and invoices use the same store identity without manual entry.
+
+Invoice numbering is also ERPNext's: the profile sync reads the **Sales Invoice**
+document naming series (falling back to **POS Invoice**), strips the dynamic
+placeholders to a literal prefix (e.g. `ACC-SINV-.YYYY.-` → `ACC-SINV-`) and
+stores both the full series and the prefix on settings. Local invoices keep that
+prefix plus `YYYY-` and a 5-digit counter, mirroring ERPNext's shape. Currency
+precision still comes from ERPNext, but ForkPOS does not force the trailing
+decimals on screen: `1,200.00` is shown as `1,200` while `1.25` stays `1.25`.
 
 ```bash
 php artisan forkpos:sync-profiles                 # profiles enabled on this terminal
@@ -446,6 +454,10 @@ Work in versions so upstream iterations stay reviewable:
   the original sale with remaining-quantity tracking and refunds on the current
   shift, Returns navigation, daily report tabs (invoices, line items, inventory
   movement) and a manager-only multi-sheet Excel export.
+- **v0.4.0** — invoice prefix comes from the ERPNext document naming series (Sales
+  Invoice, falling back to POS Invoice) instead of manual entry, and money/quantity
+  displays stop forcing trailing decimals (ERPNext precision is still used for
+  rounding).
 
 See `CHANGELOG.md`.
 
