@@ -156,3 +156,86 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Run `vendor/bin/phpunit` to call the test runner directly. It accepts the same file path and `--filter=testName` arguments.
 
 </laravel-boost-guidelines>
+
+=== forkpos project rules ===
+
+# ForkPOS project rules
+
+These rules are specific to this repository. They sit OUTSIDE the `<laravel-boost-guidelines>` block on purpose: `php artisan boost:update` regenerates that block and would overwrite anything written inside it. Where a project rule below conflicts with a Boost rule above, the project rule wins.
+
+## What this project is
+
+ForkPOS is a Laravel 13 / SQLite point-of-sale app (Blade + Sanctum API) that syncs with ERPNext. Vans (POS profiles) sell, take cash and credit, and push to ERPNext. ERPNext is the source of truth for items, prices, customers, stock, naming series and unpaid invoices.
+
+- PHP: `composer.json` allows `^8.3`. The Boost block above says 8.4; trust `composer.json`.
+- Business logic lives in `app/Services` (`InvoiceService`, `CreditService`, `SyncService`, `ShiftService`, `ReportService`, `ErpNextClient`, `NamingSeries`, `ProfileCatalogSync`, `PosProfileSync`). Web and API controllers stay thin and call the same services. Do not duplicate logic in controllers or Blade.
+- Pure helpers with no framework code live in `app/Support` (`DocNaming`, `Money`, `XlsxWriter`).
+
+## Secrets and demo data
+
+- ERPNext URL, API key and secret live only in the `settings` table (setup page). Never put them in code, tests, seeders, `.env.example`, docs, commits or patches. Tests use fake hosts and `Http::fake()`.
+- `DemoSeeder` is opt-in demo data (`php artisan db:seed --class=DemoSeeder`), never part of a normal install.
+
+## Documentation files
+
+The Boost rule "only create documentation files if asked" applies to NEW files. This project keeps `README.md` and `CHANGELOG.md` current: when behaviour, commands or the test count change, update them in the same commit.
+
+## Money, quantities and decimals
+
+- Show amounts without forced decimals: `1000`, not `1000.00`; `1.25` stays `1.25`.
+- Blade: `\App\Support\Money::format()`, `quantity()`, `plain()` (for number inputs). Never `number_format($x, 2)` in a view.
+- JavaScript: the register's `fmtAmount()` and the collect dialog's `plain()`. Never `.toFixed(PRECISION)` for display.
+- Rounding for storage and ERPNext still uses the currency precision; trimming is display only.
+
+## Document numbering (invoices, returns, collections)
+
+- One source of truth: `settings.invoice_series` / `settings.invoice_prefix`, kept current by `NamingSeries` and `PosProfileSync` from ERPNext. Do not add a competing settings column for the same purpose.
+- Build local numbers only through `DocNaming::number()`: `{prefix}{VAN}-[CR-]{YYYY}-#####` (example `ACC-SINV-TVP-2026-00001`). Collections are `COL-{VAN}-{YYYY}-#####`. The result must fit the 32-character `invoice_no` column.
+- The van id is `pos_profiles.van_code` (unique, 1-8 letters/digits, `PosProfile::ensureVanCode()`, editable by a manager in Settings). Two vans must never share one.
+- On push, the van series (`DocNaming::vanSeries()`) is sent as `naming_series` so ERPNext names carry the van id too. `FORKPOS_REGISTER_VAN_SERIES=false` stops the app from adding missing series to ERPNext.
+
+## ERPNext push rules (important)
+
+- A REST create always leaves a document in Draft; Frappe ignores `docstatus` in the payload. Submit with `SyncService::submitDoc()`. It retries only the "modified after you have opened it" error and re-checks `docstatus` first so a lost response cannot submit twice.
+- Persist the ERPNext document name right after the create and before the submit. A retry must finish that document, never create a second one.
+- Every push must be safe to repeat:
+  - Sales Invoice: reuse the remembered `erpnext_id` (submit if still a draft, recreate only if gone or cancelled).
+  - Payment Entry: look up by `reference_no = collection_no` first; a draft found there must be submitted, not counted as pushed.
+- Invoices go before collections: a Payment Entry needs its invoice in ERPNext.
+- Return clear messages for expected races (another van collected first). Use `ErpNextClient::serverMessage()` text, not raw HTTP codes.
+- `pos:submit-drafts` repairs old drafts (dry run by default, oldest first). Do not run it with `--apply` against a live site without the owner's approval; it posts stock and GL entries.
+
+## Credit sales and collections
+
+- A credit sale is a normal invoice with an unpaid balance. Its due date is the invoice's own `due_date` (terms chosen at the register); `config('forkpos.credit_days')` is only the fallback.
+- `credit_invoices` holds one row per unpaid invoice from ANY van (local credit sales plus the ERPNext pull). `outstanding = erp_outstanding - pending local collections`. When a collection syncs, `CreditService::markPushed()` lowers `erp_outstanding` by the same amount, so it is never subtracted twice.
+- The credit pull is always a full pull of ERPNext's unpaid list. An open row ERPNext no longer lists was paid or cancelled elsewhere and is closed locally.
+- The pull mirrors the balance onto the linked local invoice but never overwrites a cancelled or returned sale.
+- Walk-in credit is blocked in the register UI only; the server enforces the customer's credit limit. A sale with collections cannot be cancelled (`InvoiceService::cancellationBlocker()`).
+- ERPNext is the referee for double collection: it rejects the second Payment Entry, the collection is marked failed with the reason, and Discard frees the balance.
+
+## Register and Blade/JS
+
+- The credit alert must never block or slow a sale: fire-and-forget fetches, ignore failures, drop stale responses.
+- Do not pass inline PHP arrays with commas to `@json(...)`; build them first with `@php($collect = [...])`.
+- A function name or `const` must exist once per page script (the register already defines `esc` and `fmtAmount`).
+- After editing Blade or inline JS, run `php artisan view:cache` (then `view:clear`) and `node --check` on the extracted script.
+
+## Tests
+
+- Run the narrowest tests first, then the full suite before finishing: `php artisan test --compact`.
+- `Http::fake()` appends stubs and the first match wins. Use ONE closure per test that handles every URL; do not call `fakeErp()` and then `Http::fake()` again.
+- Frappe list endpoints return arrays (`data: []`); single-document endpoints return an object. Fixtures must match.
+- Frappe validation errors arrive as 4xx with `_server_messages`; fake them like that.
+- Test failure modes that matter in the field: retry after a failed submit, a stale submit, another van collecting first, a returned or cancelled sale during a pull.
+- Never weaken an assertion to make a test pass; fix the fixture or the code.
+
+## Definition of done
+
+1. Code follows sibling files and the rules above.
+2. Tests added or updated, full suite green.
+3. `vendor/bin/pint --dirty --format agent` run.
+4. Blade views compile (`php artisan view:cache`) and inline JS passes `node --check`.
+5. README test count and CHANGELOG updated.
+6. Anything that talks to ERPNext is exercised against a real ERPNext (trial site) at least once, or the hand-off says plainly that it was not.
+7. Commit messages end with the attribution trailers the session requires. Never commit secrets.
