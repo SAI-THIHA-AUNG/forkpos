@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Item;
 use App\Models\PosOpeningShift;
+use App\Models\PosProfile;
 use App\Models\Warehouse;
 use App\Services\ShiftService;
 use Illuminate\Http\Request;
@@ -107,10 +108,10 @@ class ShiftController extends Controller
             $posProfile = PosProfile::findOrFail($id);
 
             // Get all items
-            $items = Item::get(['id', 'item_code', 'item_name', 'selling_price']);
+            $items = Item::get(['id', 'item_code', 'item_name', 'standard_rate']);
 
             // Get all customers
-            $customers = Customer::get(['id', 'customer_name', 'customer_group']);
+            $customers = Customer::get(['id', 'customer_name', 'customer_group_id']);
 
             // Get all warehouses
             $warehouses = Warehouse::where('is_group', false)->get(['id', 'name', 'erpnext_id']);
@@ -138,10 +139,11 @@ class ShiftController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
+            report($e);
+
             return response()->json([
                 'data' => [
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                 ],
             ], 500);
         }

@@ -8,6 +8,11 @@ and the project follows rough semantic versioning.
 
 Credit collection across vans, and van-aware document numbering.
 
+### Fixed
+- `GET /api/v1/shifts/pos-profile-data/{id}` crashed (`PosProfile` was not imported) and then
+  queried non-existent `selling_price` / `customer_group` columns; it now returns `standard_rate` /
+  `customer_group_id` and no longer leaks a stack trace in the 500 response.
+
 ### Added
 - Settings: per-profile **Shift required / Not required** selector (a local setting; ERPNext POS
   Profiles have no such option). The Van ID tooltip now shows the real numbering prefix.
