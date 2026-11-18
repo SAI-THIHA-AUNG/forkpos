@@ -9,6 +9,8 @@ and the project follows rough semantic versioning.
 Credit collection across vans, and van-aware document numbering.
 
 ### Fixed
+- Manual **Sync masters** (`POST /sync/masters`) no longer dies with "Maximum execution time of 30
+  seconds exceeded" on a large catalog: the request lifts PHP's web time limit.
 - `GET /api/v1/shifts/pos-profile-data/{id}` crashed (`PosProfile` was not imported) and then
   queried non-existent `selling_price` / `customer_group` columns; it now returns `standard_rate` /
   `customer_group_id` and no longer leaks a stack trace in the 500 response.

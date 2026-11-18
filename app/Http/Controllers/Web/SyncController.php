@@ -91,6 +91,11 @@ class SyncController extends Controller
             : null;
         $ctx = $profile ? SyncContext::forProfile($profile) : null;
 
+        // A first full pull of a large ERPNext catalog easily outlasts PHP's default
+        // 30 s web limit ("Maximum execution time of 30 seconds exceeded").
+        set_time_limit(0);
+        ignore_user_abort(true);
+
         try {
             $result = $this->sync->pullMasters($entities, $data['limit'] ?? 500, $ctx);
 
