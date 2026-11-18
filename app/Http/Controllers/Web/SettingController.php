@@ -102,6 +102,20 @@ class SettingController extends Controller
         return back()->with('success', implode(' ', $messages));
     }
 
+    /**
+     * PUT /settings/pos-profile/{profile}/shift-required — whether selling on this profile needs an
+     * open shift. ERPNext POS Profiles have no such option, so it is always a local setting.
+     */
+    public function updateShiftRequired(Request $request, PosProfile $profile)
+    {
+        $required = $request->boolean('require_shift');
+        $profile->forceFill(['require_shift' => $required])->save();
+
+        return back()->with('success', $required
+            ? "{$profile->name}: a shift is required before selling."
+            : "{$profile->name}: selling no longer needs an open shift.");
+    }
+
     /** PUT /settings/pos-profile/{profile}/van-code — the van id used in invoice/collection numbers. */
     public function updateVanCode(Request $request, PosProfile $profile)
     {

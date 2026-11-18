@@ -569,4 +569,15 @@ class CreditCollectionTest extends TestCase
         $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
         $this->assertEqualsWithDelta(4.80, (float) $invoice->outstanding_amount, 0.005);
     }
+
+    public function test_manager_can_switch_shift_requirement_per_profile(): void
+    {
+        $this->assertTrue((bool) PosProfile::findOrFail($this->profileId)->require_shift);
+
+        $this->web()->put(route('settings.shift-required', $this->profileId), ['require_shift' => '0'])->assertRedirect();
+        $this->assertFalse((bool) PosProfile::findOrFail($this->profileId)->require_shift);
+
+        $this->web()->put(route('settings.shift-required', $this->profileId), ['require_shift' => '1'])->assertRedirect();
+        $this->assertTrue((bool) PosProfile::findOrFail($this->profileId)->require_shift);
+    }
 }

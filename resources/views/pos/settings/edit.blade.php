@@ -217,6 +217,7 @@
                     <th class="text-left py-2">Price list</th><th class="text-left py-2">Warehouse</th>
                     <th class="text-left py-2">Payment methods</th>
                     <th class="text-left py-2">Van ID</th>
+                    <th class="text-left py-2" title="Local setting: ERPNext POS Profiles have no such option">Shift</th>
                     <th class="text-right py-2">Synced</th>
                 </tr></thead>
                 <tbody>
@@ -230,7 +231,17 @@
                         <td class="py-2">
                             <form method="POST" action="{{ route('settings.van-code', $p) }}" class="flex items-center gap-1">
                                 @csrf @method('PUT')
-                                <input name="van_code" value="{{ $p->van_code ?? $p->ensureVanCode() }}" maxlength="8" class="w-20 rounded border border-slate-300 px-2 py-1 text-xs font-mono uppercase" title="Used in invoice numbers, e.g. {{ \App\Support\DocNaming::number(\App\Support\DocNaming::seriesPrefix($setting->erpnext_naming_series) ?: 'INV-', $p->van_code ?? $p->ensureVanCode(), '', now()->year, 1) }}">
+                                <input name="van_code" value="{{ $p->van_code ?? $p->ensureVanCode() }}" maxlength="8" class="w-20 rounded border border-slate-300 px-2 py-1 text-xs font-mono uppercase" title="Used in invoice numbers, e.g. {{ \App\Support\DocNaming::number(\App\Support\DocNaming::seriesPrefix((string) $setting->invoice_series) ?: ($setting->invoice_prefix ?: 'INV-'), $p->van_code ?? $p->ensureVanCode(), '', now()->year, 1) }}">
+                                <button class="text-xs text-brand-600 hover:underline">Save</button>
+                            </form>
+                        </td>
+                        <td class="py-2">
+                            <form method="POST" action="{{ route('settings.shift-required', $p) }}" class="flex items-center gap-1">
+                                @csrf @method('PUT')
+                                <select name="require_shift" class="rounded border border-slate-300 px-1 py-1 text-xs bg-white">
+                                    <option value="1" @selected($p->require_shift)>Required</option>
+                                    <option value="0" @selected(! $p->require_shift)>Not required</option>
+                                </select>
                                 <button class="text-xs text-brand-600 hover:underline">Save</button>
                             </form>
                         </td>

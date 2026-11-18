@@ -9,6 +9,8 @@ and the project follows rough semantic versioning.
 Credit collection across vans, and van-aware document numbering.
 
 ### Added
+- Settings: per-profile **Shift required / Not required** selector (a local setting; ERPNext POS
+  Profiles have no such option). The Van ID tooltip now shows the real numbering prefix.
 - `credit_invoices` (unpaid Sales Invoices from *any* van) and `collections`
   tables + `CreditInvoice` / `Collection` models + `CreditService` +
   `CreditController` + `/credit` pages and a register credit-alert chip + slide-over.

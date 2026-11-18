@@ -56,6 +56,8 @@ Route::middleware('auth')->group(function () {
 
             Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
             Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+            Route::put('/settings/pos-profile/{profile}/shift-required', [SettingController::class, 'updateShiftRequired'])
+                ->name('settings.shift-required');
             Route::put('/settings/pos-profile/{profile}/van-code', [SettingController::class, 'updateVanCode'])
                 ->name('settings.van-code');
             Route::post('/settings/sync-pos-profile', [SettingController::class, 'syncPosProfile'])
