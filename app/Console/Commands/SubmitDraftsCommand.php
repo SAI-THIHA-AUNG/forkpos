@@ -42,9 +42,10 @@ class SubmitDraftsCommand extends Command
         }
 
         $this->table(
-            ['Invoice', 'Total', 'Remarks'],
+            ['Invoice', 'Posting date', 'Total', 'Remarks'],
             array_map(fn (array $d) => [
                 $d['name'],
+                (string) $d['posting_date'],
                 number_format($d['total'], 2),
                 mb_strimwidth((string) $d['remarks'], 0, 60, '...'),
             ], $result['drafts']),

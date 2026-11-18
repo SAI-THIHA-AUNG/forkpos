@@ -46,14 +46,18 @@ Credit collection across vans, and van-aware document numbering.
   ERPNext's raw over-allocation error.
 - A failed invoice submit no longer creates a duplicate on retry: the draft's name
   is stored straight after the create, and the next push finishes that draft
-  (recreating only when it is gone or cancelled).
+  (recreating only when it is gone or cancelled). Only a stale-document error
+  ("modified after you have opened it") is retried; stock or validation failures
+  fail at once with one request instead of a second identical attempt.
 - A draft Payment Entry carrying our collection number is submitted before the
   collection counts as pushed, so a failed submit can't silently strand the money.
 - Only a sale actually posted to ERPNext blocks cancellation. A sale left as a
   draft by a failed submit can be cancelled locally (the draft then stays in
   ERPNext and has to be cancelled there).
 - **`pos:submit-drafts`**: one-off repair for invoices pushed by older versions
-  that left them as drafts. Dry run by default; `--apply` submits them.
+  that left them as drafts. Dry run by default; `--apply` submits them oldest
+  posting date first, because an update-stock invoice can depend on a later
+  receipt being posted before it.
 - The unpaid-invoice pull now writes ERPNext's balance back onto the local invoice
   as well, so a payment taken on the desk or by another van (or a Payment Entry
   cancelled there) no longer leaves our sale showing the old status.

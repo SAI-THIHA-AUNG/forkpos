@@ -70,7 +70,7 @@ php artisan pos:submit-drafts         # one-off: submit drafts left by older pus
 Pushes are idempotent: if ERPNext refuses a submit (for example insufficient
 stock), the draft's name is kept and the next push finishes that document instead
 of creating a second invoice. `pos:submit-drafts` repairs invoices pushed by
-versions that left them as drafts.
+versions that left them as drafts, oldest posting date first.
 
 Configure the connector on the **Connect ERPNext** page (or
 `php artisan erpnext:setup`). API key/secret are verified against ERPNext and the
@@ -86,7 +86,7 @@ See `app/Http/Controllers/Api/V1` for the full surface.
 ## Development
 
 ```bash
-php artisan test          # PHPUnit feature tests (in-memory SQLite) — 117 tests / 629 assertions
+php artisan test          # PHPUnit feature tests (in-memory SQLite) — 119 tests / 642 assertions
 vendor/bin/pint --dirty   # code style
 ```
 

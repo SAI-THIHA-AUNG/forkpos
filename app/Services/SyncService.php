@@ -595,14 +595,17 @@ class SyncService
      */
     public function submitForkposDrafts(bool $apply = false): array
     {
-        $rows = $this->client->listAll('Sales Invoice', ['name', 'grand_total', 'remarks'], [
+        // Oldest first: with update-stock invoices an early sale may only be
+        // submittable after a later receipt, so posting-date order is the fair one.
+        $rows = $this->client->listAll('Sales Invoice', ['name', 'grand_total', 'remarks', 'posting_date'], [
             ['docstatus', '=', 0],
             ['remarks', 'like', 'Synced from forkpos Laravel POS%'],
-        ], 100);
+        ], 100, 'posting_date asc, name asc');
 
         $drafts = array_map(fn (array $row) => [
             'name' => (string) $row['name'],
             'total' => (float) ($row['grand_total'] ?? 0),
+            'posting_date' => $row['posting_date'] ?? null,
             'remarks' => $row['remarks'] ?? null,
         ], $rows);
 
@@ -751,11 +754,12 @@ class SyncService
     /**
      * Submit a just-created document.
      *
-     * Frappe rejects a stale payload ("modified after you have opened it") when
-     * the server touched the document during save, so on failure the document is
-     * reloaded once and submitted from its current state. The docstatus is
-     * re-checked first, so a request whose response was lost is not submitted
-     * twice.
+     * Only a stale payload ("modified after you have opened it") is worth a
+     * second attempt: Frappe rejects it when the server touched the document
+     * during save, and submitting a freshly loaded copy fixes that. Every other
+     * failure (stock, validation) would fail again identically, so it is raised
+     * as-is with a single request. The docstatus is re-checked before retrying,
+     * so a request whose response was lost is not submitted twice.
      *
      * @param  array<string, mixed>  $doc  the created document (needs `name`)
      */
@@ -770,7 +774,7 @@ class SyncService
         try {
             $this->client->call('frappe.client.submit', ['doc' => $doc], true);
         } catch (\Throwable $e) {
-            if (! $name) {
+            if (! $name || ! str_contains($e->getMessage(), 'has been modified after you have opened it')) {
                 throw $e;
             }
             $fresh = $this->client->doc($doctype, $name);

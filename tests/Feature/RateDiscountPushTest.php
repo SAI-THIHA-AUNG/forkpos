@@ -192,6 +192,100 @@ class RateDiscountPushTest extends TestCase
         });
     }
 
+    public function test_a_stale_submit_is_retried_once_from_a_fresh_document(): void
+    {
+        $invoice = $this->invoiceReadyToPush();
+        $submits = 0;
+
+        Http::fake(function ($request) use (&$submits) {
+            $url = urldecode($request->url());
+
+            if (str_contains($url, 'frappe.client.submit')) {
+                $submits++;
+
+                // Frappe's TimestampMismatchError: the saved doc changed under us.
+                return $submits === 1
+                    ? Http::response([
+                        'exc_type' => 'TimestampMismatchError',
+                        '_server_messages' => json_encode([json_encode([
+                            'message' => 'Sales Invoice ACC-SINV-2026-00009 has been modified after you have opened it. Please reload the document and try again.',
+                        ])]),
+                    ], 417)
+                    : Http::response(['message' => ['docstatus' => 1]]);
+            }
+            if (str_contains($url, '/api/resource/Sales Invoice/ACC-SINV-2026-00009')) {
+                return Http::response(['data' => ['name' => 'ACC-SINV-2026-00009', 'docstatus' => 0]]);
+            }
+            if (str_contains($url, '/api/resource/Sales')) {
+                return Http::response(['data' => ['name' => 'ACC-SINV-2026-00009', 'docstatus' => 0]]);
+            }
+
+            return Http::response(['data' => []]);
+        });
+
+        $result = app(SyncService::class)->pushInvoices([$invoice->id]);
+
+        $this->assertSame(1, $result['pushed'], implode(' | ', $result['errors']));
+        $this->assertSame(2, $submits, 'one retry from the reloaded document');
+        Http::assertSent(fn ($request) => str_contains(urldecode($request->url()), '/api/resource/Sales Invoice/ACC-SINV-2026-00009'));
+    }
+
+    public function test_a_stock_rejection_is_not_retried_and_keeps_the_draft(): void
+    {
+        $invoice = $this->invoiceReadyToPush();
+        $submits = 0;
+        $reloads = 0;
+
+        Http::fake(function ($request) use (&$submits, &$reloads) {
+            $url = urldecode($request->url());
+
+            if (str_contains($url, 'frappe.client.submit')) {
+                $submits++;
+
+                return Http::response([
+                    'exc_type' => 'ValidationError',
+                    '_server_messages' => json_encode([json_encode([
+                        'message' => '99803.0 units of Item TEST-COLA needed in Warehouse Stores - M to complete this transaction.',
+                    ])]),
+                ], 417);
+            }
+            if (preg_match('#/api/resource/Sales Invoice/#', $url)) {
+                $reloads++;
+
+                return Http::response(['data' => ['name' => 'ACC-SINV-2026-00009', 'docstatus' => 0]]);
+            }
+            if (str_contains($url, '/api/resource/Sales')) {
+                return Http::response(['data' => ['name' => 'ACC-SINV-2026-00009', 'docstatus' => 0]]);
+            }
+
+            return Http::response(['data' => []]);
+        });
+
+        $result = app(SyncService::class)->pushInvoices([$invoice->id]);
+
+        $this->assertSame(1, $result['failed']);
+        $this->assertSame(1, $submits, 'a stock rejection fails identically, so it is not retried');
+        $this->assertSame(0, $reloads, 'no pointless reload');
+        $this->assertSame('failed', $invoice->fresh()->sync_status);
+        $this->assertSame('ACC-SINV-2026-00009', $invoice->fresh()->erpnext_id, 'the draft is remembered for the next push');
+        $this->assertStringContainsString('units of Item TEST-COLA', implode(' | ', $result['errors']));
+    }
+
+    /** A sale with an ERPNext-mapped customer and item, ready for pushInvoices. */
+    protected function invoiceReadyToPush(): Invoice
+    {
+        $this->profile->update(['erpnext_id' => 'Test Van POS', 'company' => 'ACME']);
+        $item = Item::where('item_code', 'ITEM-0001')->firstOrFail();
+        $item->update(['erpnext_id' => 'ITEM-0001']);
+
+        $this->sell($item, 1, [], [['mode_of_payment' => 'Cash', 'amount' => 2]])->assertCreated();
+
+        $invoice = Invoice::orderByDesc('id')->firstOrFail();
+        $invoice->customer->update(['erpnext_id' => 'Walk-in Customer']);
+
+        return $invoice;
+    }
+
     public function test_master_pull_accepts_comma_separated_entities_and_reports_counts(): void
     {
         Http::fake([

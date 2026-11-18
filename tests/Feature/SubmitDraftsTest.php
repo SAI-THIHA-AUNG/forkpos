@@ -32,8 +32,8 @@ class SubmitDraftsTest extends TestCase
     protected function drafts(): array
     {
         return [
-            ['name' => 'ACC-SINV-TVP-2026-00001', 'grand_total' => 3000, 'remarks' => 'Synced from forkpos Laravel POS (ACC-SINV-TVP-2026-00001)'],
-            ['name' => 'ACC-SINV-TVP-2026-00002', 'grand_total' => 1500, 'remarks' => 'Synced from forkpos Laravel POS (ACC-SINV-TVP-2026-00002)'],
+            ['name' => 'ACC-SINV-TVP-2026-00001', 'grand_total' => 3000, 'posting_date' => '2026-11-02', 'remarks' => 'Synced from forkpos Laravel POS (ACC-SINV-TVP-2026-00001)'],
+            ['name' => 'ACC-SINV-TVP-2026-00002', 'grand_total' => 1500, 'posting_date' => '2026-11-10', 'remarks' => 'Synced from forkpos Laravel POS (ACC-SINV-TVP-2026-00002)'],
         ];
     }
 
@@ -54,12 +54,14 @@ class SubmitDraftsTest extends TestCase
 
         Http::assertNotSent(fn ($request) => str_contains(urldecode($request->url()), 'frappe.client.submit'));
 
-        // The list must already be scoped to ForkPOS-created drafts, not every draft.
+        // The list must already be scoped to ForkPOS-created drafts, not every draft,
+        // and ordered by posting date so stock-dependent submits go oldest first.
         Http::assertSent(function ($request) {
             $url = urldecode($request->url());
 
             return str_contains($url, '/api/resource/Sales Invoice')
-                && str_contains($url, 'Synced from forkpos Laravel POS');
+                && str_contains($url, 'Synced from forkpos Laravel POS')
+                && str_contains($url, 'posting_date asc');
         });
     }
 
