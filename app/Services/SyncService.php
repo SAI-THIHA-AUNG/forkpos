@@ -817,6 +817,14 @@ class SyncService
             throw new RuntimeException('ERPNext could not build a Payment Entry for '.$invoice->erpnext_id.'.');
         }
 
+        // When the invoice has no balance left (another van collected it first),
+        // ERPNext still returns a template — but one that moves money the other
+        // way (`payment_type = Pay`). Say so plainly instead of submitting a
+        // nonsensical entry that fails on account types.
+        if (($pe['payment_type'] ?? 'Receive') !== 'Receive') {
+            throw new RuntimeException("ERPNext reports no balance left on {$invoice->erpnext_id} — it was probably collected by another van. Refresh the invoice list.");
+        }
+
         $amount = round((float) $collection->amount, 6);
         $date = $collection->posting_date->toDateString();
         $pe['posting_date'] = $date;

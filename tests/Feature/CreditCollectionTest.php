@@ -11,6 +11,7 @@ use App\Models\PosProfile;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\CreditService;
+use App\Services\InvoiceService;
 use App\Services\SyncService;
 use App\Support\DocNaming;
 use Database\Seeders\DemoSeeder;
@@ -109,7 +110,7 @@ class CreditCollectionTest extends TestCase
         $this->creditSale(2.0)->assertCreated();
         $this->web()->postJson("/credit/{$this->credit()->id}/collect", ['amount' => 1, 'mode_of_payment' => 'Cash'])->assertCreated();
 
-        $blocker = app(\App\Services\InvoiceService::class)
+        $blocker = app(InvoiceService::class)
             ->cancellationBlocker(Invoice::firstOrFail(), User::where('email', 'admin@pos.test')->first());
         $this->assertStringContainsString('collected', (string) $blocker);
     }
@@ -317,6 +318,51 @@ class CreditCollectionTest extends TestCase
         $c = Collection::firstOrFail();
         $this->assertSame('failed', $c->sync_status);
         $this->assertStringContainsString('already paid', $c->sync_error);
+
+        app(CreditService::class)->discard($c);
+        $this->assertSame('open', $credit->fresh()->status);
+        $this->assertEqualsWithDelta(10.0, $credit->fresh()->outstanding, 0.005);
+    }
+
+    public function test_collection_on_an_invoice_paid_by_another_van_fails_clearly_and_discard_frees_it(): void
+    {
+        Http::fake(function ($request) {
+            $url = urldecode($request->url());
+            if (str_contains($url, 'get_payment_entry')) {
+                // ERPNext answers with a template that moves money the other way
+                // when the invoice has no balance left.
+                return Http::response(['message' => [
+                    'company' => 'Test Co', 'payment_type' => 'Pay', 'party_type' => 'Customer',
+                    'paid_from' => 'Cash', 'paid_to' => 'Debtors',
+                    'references' => [['allocated_amount' => 4]],
+                ]]);
+            }
+            if (str_contains($url, '/api/method/ping')) {
+                return Http::response(['message' => 'pong']);
+            }
+            if (str_contains($url, '/api/resource/Sales Invoice/')) {
+                return Http::response(['data' => ['items' => [['item_code' => 'X', 'item_name' => 'Cola', 'qty' => 2, 'uom' => 'Nos', 'rate' => 5, 'amount' => 10]]]]);
+            }
+            if (str_contains($url, '/api/resource/Sales Invoice')) {
+                return Http::response(['data' => [$this->otherVanInvoice()]]);
+            }
+
+            return Http::response(['data' => []]);
+        });
+
+        app(SyncService::class)->pullMasters(['credit_invoice']);
+        $credit = $this->credit();
+        $this->web()->postJson("/credit/{$credit->id}/collect", ['amount' => 4, 'mode_of_payment' => 'Cash'])->assertCreated();
+
+        $out = app(SyncService::class)->pushCollections();
+
+        $this->assertSame(1, $out['failed']);
+        $c = Collection::firstOrFail();
+        $this->assertSame('failed', $c->sync_status);
+        $this->assertStringContainsString('no balance left', $c->sync_error);
+        $this->assertStringContainsString('another van', $c->sync_error);
+        // No point sending a Payment Entry the other way round.
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/resource/Payment Entry'));
 
         app(CreditService::class)->discard($c);
         $this->assertSame('open', $credit->fresh()->status);

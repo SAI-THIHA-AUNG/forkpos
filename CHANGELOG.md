@@ -37,6 +37,10 @@ Credit collection across vans, and van-aware document numbering.
   `invoice_series` / `invoice_prefix` — one source, no override.
 - The cancel guard explains itself in the UI: "Money has been collected against
   this credit sale… Use Return instead.", not only inside the cancel call.
+- A second van collecting an invoice the first one already cleared now fails with
+  **"ERPNext reports no balance left… it was probably collected by another van"**
+  instead of an account-type error from a Payment Entry built the wrong way round.
+  The collection is marked rejected and **Discard** frees the balance again.
 
 ### How it works
 
