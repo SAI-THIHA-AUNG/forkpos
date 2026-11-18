@@ -615,6 +615,9 @@ class InvoiceService
         if ($invoice->returns()->where('status', '!=', Invoice::STATUS_CANCELLED)->exists()) {
             return 'This sale already has returns. Cancel is not possible; the returns stand.';
         }
+        if ($invoice->creditInvoice()->exists() && $invoice->creditInvoice->collections()->exists()) {
+            return 'Money has been collected against this credit sale, so it cannot be cancelled. Use Return instead.';
+        }
         if ($invoice->erpnext_id || $invoice->sync_status === 'synced') {
             return 'This sale is already in ERPNext. Use Return to reverse it instead of cancelling.';
         }
@@ -803,8 +806,8 @@ class InvoiceService
      */
     protected function nextInvoiceNumber(Setting $setting, PosProfile $profile, bool $isReturn): string
     {
-        $series = DocNaming::seriesPrefix($setting->erpnext_naming_series);
-        $prefix = $series !== '' ? $series : (string) $setting->invoice_prefix;
+        // invoice_prefix is ERPNext's Sales Invoice series, kept current by PosProfileSync / NamingSeries.
+        $prefix = DocNaming::seriesPrefix((string) $setting->invoice_series) ?: (string) $setting->invoice_prefix;
 
         $seq = $setting->next_invoice_number;
         $setting->next_invoice_number = $seq + 1;

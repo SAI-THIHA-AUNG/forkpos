@@ -88,6 +88,32 @@ class CreditCollectionTest extends TestCase
         $this->assertEqualsWithDelta(2.80, $this->credit()->outstanding, 0.005);
     }
 
+    public function test_credit_row_keeps_the_due_date_chosen_at_the_register(): void
+    {
+        $this->postJson('/api/v1/invoices', [
+            'pos_profile_id' => $this->profileId,
+            'customer_id' => $this->customer->id,
+            'is_credit' => true,
+            'credit_days' => 14,
+            'items' => [['item_id' => Item::where('item_code', 'ITEM-0001')->value('id'), 'qty' => 4]],
+            'payments' => [['mode_of_payment' => 'Cash', 'amount' => 2]],
+        ], $this->headers)->assertCreated();
+
+        $invoice = Invoice::firstOrFail();
+        $this->assertTrue($invoice->due_date->isSameDay(now()->addDays(14)), 'invoice keeps the 14-day terms');
+        $this->assertTrue($this->credit()->due_date->isSameDay($invoice->due_date), 'credit row follows the invoice, not the 30-day default');
+    }
+
+    public function test_sale_with_collections_reports_a_cancel_blocker(): void
+    {
+        $this->creditSale(2.0)->assertCreated();
+        $this->web()->postJson("/credit/{$this->credit()->id}/collect", ['amount' => 1, 'mode_of_payment' => 'Cash'])->assertCreated();
+
+        $blocker = app(\App\Services\InvoiceService::class)
+            ->cancellationBlocker(Invoice::firstOrFail(), User::where('email', 'admin@pos.test')->first());
+        $this->assertStringContainsString('collected', (string) $blocker);
+    }
+
     public function test_credit_limit_is_enforced(): void
     {
         $this->customer->update(['credit_limit' => 1.00]);

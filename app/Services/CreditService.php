@@ -34,7 +34,8 @@ class CreditService
             'van_code' => $invoice->van_code,
             'origin' => 'local',
             'posting_date' => $invoice->posting_date,
-            'due_date' => $invoice->posting_date->copy()->addDays((int) config('forkpos.credit_days', 30)),
+            // The terms the cashier picked at the register win; the config default only fills a gap.
+            'due_date' => $invoice->due_date ?? $invoice->posting_date->copy()->addDays((int) config('forkpos.credit_days', 30)),
             'currency' => $invoice->currency,
             'grand_total' => $invoice->grand_total,
             'paid_amount' => round((float) $invoice->grand_total - $outstanding, 6),

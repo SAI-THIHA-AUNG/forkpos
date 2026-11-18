@@ -355,7 +355,8 @@ class SyncService
         }
 
         $setting = Setting::current();
-        $chosen = $setting->erpnext_naming_series;
+        // Prefer the series PosProfileSync already mirrored, so there is one source of truth.
+        $chosen = $setting->invoice_series ?: $setting->erpnext_naming_series;
         if (! $chosen || ! in_array($chosen, $options, true)) {
             $chosen = ($default && in_array($default, $options, true)) ? $default : $options[0];
         }
@@ -637,7 +638,7 @@ class SyncService
             'company' => $company,
             'pos_profile' => $posProfile,
             'is_pos' => $payments ? 1 : 0,
-            'due_date' => $onCredit ? ($credit?->due_date ?? $invoice->posting_date->copy()->addDays((int) config('forkpos.credit_days', 30)))->toDateString() : null,
+            'due_date' => $onCredit ? ($invoice->due_date ?? $credit?->due_date ?? $invoice->posting_date->copy()->addDays((int) config('forkpos.credit_days', 30)))->toDateString() : null,
             'update_stock' => 1,
             'set_posting_time' => 1,
             'posting_date' => $invoice->posting_date->toDateString(),
@@ -672,7 +673,7 @@ class SyncService
     protected function vanSeriesFor(PosProfile $profile): ?string
     {
         $setting = Setting::current();
-        $base = (string) $setting->erpnext_naming_series;
+        $base = (string) ($setting->invoice_series ?: $setting->erpnext_naming_series);
         if ($base === '') {
             return null;
         }
