@@ -452,6 +452,21 @@ class SyncService
                 $credit->invoice_id = $localIds[$name];
             }
             $credit->save();
+
+            // ERPNext is authoritative: a payment taken at the desk or by another
+            // van must show on our own invoice row too, not only in the credit list.
+            if ($credit->invoice_id) {
+                $left = max(0.0, round($outstanding - $pending, 6));
+                Invoice::whereKey($credit->invoice_id)
+                    ->where('status', '!=', Invoice::STATUS_CANCELLED)
+                    ->update([
+                        'outstanding_amount' => $left,
+                        'paid_amount' => round($grand - $left, 6),
+                        'status' => $left <= 0.009
+                            ? Invoice::STATUS_PAID
+                            : ($left >= $grand ? Invoice::STATUS_UNPAID : Invoice::STATUS_PARTLY_PAID),
+                    ]);
+            }
             $count++;
         }
 

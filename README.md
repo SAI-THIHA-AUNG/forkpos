@@ -86,7 +86,7 @@ See `app/Http/Controllers/Api/V1` for the full surface.
 ## Development
 
 ```bash
-php artisan test          # PHPUnit feature tests (in-memory SQLite) — 116 tests / 624 assertions
+php artisan test          # PHPUnit feature tests (in-memory SQLite) — 117 tests / 629 assertions
 vendor/bin/pint --dirty   # code style
 ```
 

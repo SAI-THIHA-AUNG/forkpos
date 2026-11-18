@@ -217,6 +217,32 @@ class CreditCollectionTest extends TestCase
         ];
     }
 
+    public function test_pull_mirrors_erpnext_outstanding_back_onto_the_local_invoice(): void
+    {
+        $this->creditSale(2.0)->assertCreated();
+        $invoice = Invoice::firstOrFail();
+        $invoice->update([
+            'erpnext_id' => 'ACC-SINV-TVP-2026-00001', 'sync_status' => 'synced',
+            'outstanding_amount' => 0, 'paid_amount' => 4.8, 'status' => Invoice::STATUS_PAID,
+        ]);
+        $this->credit()->update(['erpnext_id' => 'ACC-SINV-TVP-2026-00001', 'van_code' => 'TVP']);
+
+        // ERPNext says the sale is still unpaid (e.g. a Payment Entry was cancelled
+        // there): the local invoice must not keep showing "paid".
+        $this->fakeErp([[
+            'name' => 'ACC-SINV-TVP-2026-00001', 'customer' => 'Aung Shop', 'customer_name' => 'Aung Shop',
+            'posting_date' => '2026-11-10', 'due_date' => '2026-12-10', 'currency' => 'USD',
+            'grand_total' => 4.8, 'outstanding_amount' => 4.8, 'pos_profile' => null, 'modified' => '2026-11-18 10:00:00',
+        ]]);
+
+        app(SyncService::class)->pullMasters(['credit_invoice']);
+
+        $invoice->refresh();
+        $this->assertEqualsWithDelta(4.8, $invoice->outstanding_amount, 0.005);
+        $this->assertEqualsWithDelta(0.0, $invoice->paid_amount, 0.005);
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
+    }
+
     public function test_unpaid_invoice_of_another_van_is_pulled_and_collectable_here(): void
     {
         PosProfile::create(array_merge(

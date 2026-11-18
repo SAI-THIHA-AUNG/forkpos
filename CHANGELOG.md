@@ -54,6 +54,9 @@ Credit collection across vans, and van-aware document numbering.
   ERPNext and has to be cancelled there).
 - **`pos:submit-drafts`**: one-off repair for invoices pushed by older versions
   that left them as drafts. Dry run by default; `--apply` submits them.
+- The unpaid-invoice pull now writes ERPNext's balance back onto the local invoice
+  as well, so a payment taken on the desk or by another van (or a Payment Entry
+  cancelled there) no longer leaves our sale showing the old status.
 
 ### How it works
 
