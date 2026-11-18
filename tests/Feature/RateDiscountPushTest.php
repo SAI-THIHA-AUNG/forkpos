@@ -156,7 +156,12 @@ class RateDiscountPushTest extends TestCase
 
         Http::fake([
             'erp.example.test/api/method/ping' => Http::response(['message' => 'pong'], 200),
-            'erp.example.test/api/resource/Sales*' => Http::response(['data' => ['name' => 'ACC-SINV-2026-00009']], 200),
+            'erp.example.test/api/resource/Sales*' => Http::response(['data' => [
+                'doctype' => 'Sales Invoice', 'name' => 'ACC-SINV-2026-00009', 'docstatus' => 0,
+            ]], 200),
+            'erp.example.test/api/method/frappe.client.submit' => Http::response(['message' => [
+                'doctype' => 'Sales Invoice', 'name' => 'ACC-SINV-2026-00009', 'docstatus' => 1,
+            ]], 200),
         ]);
 
         $result = app(SyncService::class)->pushInvoices([$invoice->id]);
@@ -164,6 +169,11 @@ class RateDiscountPushTest extends TestCase
         $this->assertSame(1, $result['pushed'], implode(' | ', $result['errors']));
         $this->assertSame('synced', $invoice->fresh()->sync_status);
         $this->assertSame('ACC-SINV-2026-00009', $invoice->fresh()->erpnext_id);
+
+        // A REST create leaves the invoice in Draft; it must be submitted so
+        // ERPNext gives it an outstanding balance to collect against.
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/api/method/frappe.client.submit')
+            && str_contains(json_encode($request->data()), 'ACC-SINV-2026-00009'));
 
         Http::assertSent(function ($request) {
             if (! str_contains($request->url(), '/api/resource/Sales')) {

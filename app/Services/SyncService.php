@@ -657,12 +657,51 @@ class SyncService
 
         $response = $this->client->create('Sales Invoice', $payload);
 
-        $name = $response['data']['name'] ?? null;
+        $data = $response['data'] ?? [];
+        $name = $data['name'] ?? null;
         if (! $name) {
             throw new RuntimeException('ERPNext did not return a document name.');
         }
 
+        // A REST create always leaves the document in Draft (Frappe ignores
+        // `docstatus` in the payload). A draft invoice has no collectible
+        // balance, so submit it — otherwise credit collection and the ERPNext
+        // outstanding reports see nothing to pay.
+        $this->submitDoc('Sales Invoice', $data);
+
         return $name;
+    }
+
+    /**
+     * Submit a just-created document.
+     *
+     * Frappe rejects a stale payload ("modified after you have opened it") when
+     * the server touched the document during save, so on failure the document is
+     * reloaded once and submitted from its current state. The docstatus is
+     * re-checked first, so a request whose response was lost is not submitted
+     * twice.
+     *
+     * @param  array<string, mixed>  $doc  the created document (needs `name`)
+     */
+    protected function submitDoc(string $doctype, array $doc): void
+    {
+        if ((int) ($doc['docstatus'] ?? 0) === 1) {
+            return;
+        }
+
+        $name = $doc['name'] ?? null;
+
+        try {
+            $this->client->call('frappe.client.submit', ['doc' => $doc], true);
+        } catch (\Throwable $e) {
+            if (! $name) {
+                throw $e;
+            }
+            $fresh = $this->client->doc($doctype, $name);
+            if ((int) ($fresh['docstatus'] ?? 0) !== 1) {
+                $this->client->call('frappe.client.submit', ['doc' => $fresh], true);
+            }
+        }
     }
 
     /**
@@ -809,9 +848,7 @@ class SyncService
         if (! $name) {
             throw new RuntimeException('ERPNext did not return a Payment Entry name.');
         }
-        if ((int) ($data['docstatus'] ?? 0) !== 1) {
-            $this->client->call('frappe.client.submit', ['doc' => $data], true);
-        }
+        $this->submitDoc('Payment Entry', $data);
 
         return $name;
     }

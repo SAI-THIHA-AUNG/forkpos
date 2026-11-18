@@ -25,6 +25,19 @@ Credit collection across vans, and van-aware document numbering.
 - The credit screens (list, detail, collect dialog, invoice page) use the same
   trailing-zero trimming as the rest of the app: `15`, not `15.00`.
 
+### Fixed
+- **Pushed invoices are submitted.** Frappe ignores `docstatus` on a REST create,
+  so every pushed sale stayed a *Draft*: no outstanding balance, and a collection
+  against it could never be allocated (the credit sync then closed it as paid).
+  The push now submits the invoice, and the Payment Entry path uses the same
+  helper (with a reload retry when ERPNext reports a stale `modified`).
+- A credit sale keeps the terms chosen at the register (7 / 14 / 30 days or a
+  date) for both its credit row and the ERPNext push; 30 days is only the fallback.
+- Local numbers and the series sent to ERPNext both come from
+  `invoice_series` / `invoice_prefix` — one source, no override.
+- The cancel guard explains itself in the UI: "Money has been collected against
+  this credit sale… Use Return instead.", not only inside the cancel call.
+
 ### How it works
 
 **1. Making a credit sale (Register).** Add items and choose a customer. If the
