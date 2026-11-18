@@ -172,6 +172,17 @@ class CancelSaleTest extends TestCase
         $this->assertSame('paid', Invoice::find($sale['id'])->status);
     }
 
+    public function test_a_sale_left_as_a_draft_by_a_failed_submit_can_still_be_cancelled_locally(): void
+    {
+        $sale = $this->sell($this->admin);
+        // The push created the invoice but ERPNext refused the submit: the draft
+        // name is remembered and the sync failed, so nothing was posted.
+        Invoice::whereKey($sale['id'])->update(['sync_status' => 'failed', 'erpnext_id' => 'ACC-SINV-TVP-2026-00009']);
+
+        $this->cancel($sale['id'], $this->admin)->assertOk();
+        $this->assertSame('cancelled', Invoice::find($sale['id'])->status);
+    }
+
     public function test_cancelling_into_a_closed_shift_is_manager_only_and_books_the_refund_as_cash_out(): void
     {
         $sale = $this->sell($this->cashier);

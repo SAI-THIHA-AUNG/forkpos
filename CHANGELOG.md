@@ -41,6 +41,19 @@ Credit collection across vans, and van-aware document numbering.
   **"ERPNext reports no balance left… it was probably collected by another van"**
   instead of an account-type error from a Payment Entry built the wrong way round.
   The collection is marked rejected and **Discard** frees the balance again.
+- If another van collected *part* of an invoice, the message says so — "ERPNext
+  shows only X left… another van probably collected part of it" — instead of
+  ERPNext's raw over-allocation error.
+- A failed invoice submit no longer creates a duplicate on retry: the draft's name
+  is stored straight after the create, and the next push finishes that draft
+  (recreating only when it is gone or cancelled).
+- A draft Payment Entry carrying our collection number is submitted before the
+  collection counts as pushed, so a failed submit can't silently strand the money.
+- Only a sale actually posted to ERPNext blocks cancellation. A sale left as a
+  draft by a failed submit can be cancelled locally (the draft then stays in
+  ERPNext and has to be cancelled there).
+- **`pos:submit-drafts`**: one-off repair for invoices pushed by older versions
+  that left them as drafts. Dry run by default; `--apply` submits them.
 
 ### How it works
 

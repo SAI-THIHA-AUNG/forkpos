@@ -268,10 +268,31 @@ class CreditCollectionTest extends TestCase
 
     public function test_collection_is_pushed_as_payment_entry(): void
     {
-        $this->fakeErp([$this->otherVanInvoice()], [
-            'get_payment_entry' => ['message' => ['company' => 'Test Co', 'references' => [['allocated_amount' => 10]]]],
-            '/api/resource/Payment Entry' => ['data' => ['name' => 'ACC-PAY-2026-00001', 'docstatus' => 1]],
-        ]);
+        Http::fake(function ($request) {
+            $url = urldecode($request->url());
+            if (str_contains($url, 'get_payment_entry')) {
+                return Http::response(['message' => [
+                    'company' => 'Test Co', 'payment_type' => 'Receive',
+                    'references' => [['allocated_amount' => 10, 'outstanding_amount' => 10]],
+                ]]);
+            }
+            if (str_contains($url, '/api/method/ping')) {
+                return Http::response(['message' => 'pong']);
+            }
+            if (str_contains($url, '/api/resource/Sales Invoice/')) {
+                return Http::response(['data' => ['items' => [['item_code' => 'X', 'item_name' => 'Cola', 'qty' => 2, 'uom' => 'Nos', 'rate' => 5, 'amount' => 10]]]]);
+            }
+            if (str_contains($url, '/api/resource/Sales Invoice')) {
+                return Http::response(['data' => [$this->otherVanInvoice()]]);
+            }
+            if (str_contains($url, '/api/resource/Payment Entry')) {
+                return $request->method() === 'POST'
+                    ? Http::response(['data' => ['name' => 'ACC-PAY-2026-00001', 'docstatus' => 1]])
+                    : Http::response(['data' => []]); // nothing pushed yet
+            }
+
+            return Http::response(['data' => []]);
+        });
         app(SyncService::class)->pullMasters(['credit_invoice']);
         $credit = $this->credit();
         $this->web()->postJson("/credit/{$credit->id}/collect", ['amount' => 4, 'mode_of_payment' => 'Cash'])->assertCreated();
@@ -417,11 +438,6 @@ class CreditCollectionTest extends TestCase
 
     public function test_draft_payment_entry_from_a_failed_submit_is_submitted_on_retry(): void
     {
-        $this->fakeErp([$this->otherVanInvoice()]);
-        app(SyncService::class)->pullMasters(['credit_invoice']);
-        $credit = $this->credit();
-        $this->web()->postJson("/credit/{$credit->id}/collect", ['amount' => 4, 'mode_of_payment' => 'Cash'])->assertCreated();
-
         $submitted = false;
         Http::fake(function ($request) use (&$submitted) {
             $u = urldecode($request->url());
@@ -429,6 +445,15 @@ class CreditCollectionTest extends TestCase
                 $submitted = true;
 
                 return Http::response(['message' => ['docstatus' => 1]]);
+            }
+            if (str_contains($u, '/api/method/ping')) {
+                return Http::response(['message' => 'pong']);
+            }
+            if (str_contains($u, '/api/resource/Sales Invoice/')) {
+                return Http::response(['data' => ['items' => [['item_code' => 'X', 'item_name' => 'Cola', 'qty' => 2, 'uom' => 'Nos', 'rate' => 5, 'amount' => 10]]]]);
+            }
+            if (str_contains($u, '/api/resource/Sales Invoice')) {
+                return Http::response(['data' => [$this->otherVanInvoice()]]);
             }
             if (str_contains($u, '/api/resource/Payment Entry/')) {
                 return Http::response(['data' => ['name' => 'PE-DRAFT', 'docstatus' => 0]]);
@@ -442,10 +467,16 @@ class CreditCollectionTest extends TestCase
             return Http::response(['data' => []]);
         });
 
+        app(SyncService::class)->pullMasters(['credit_invoice']);
+        $credit = $this->credit();
+        $this->web()->postJson("/credit/{$credit->id}/collect", ['amount' => 4, 'mode_of_payment' => 'Cash'])->assertCreated();
+
         $out = app(SyncService::class)->pushCollections();
 
         $this->assertSame(1, $out['pushed']);
         $this->assertTrue($submitted, 'the draft entry was submitted');
         $this->assertSame('PE-DRAFT', Collection::firstOrFail()->erpnext_id);
+        Http::assertNotSent(fn ($request) => $request->method() === 'POST'
+            && str_contains($request->url(), '/api/resource/Payment Entry'));
     }
 }

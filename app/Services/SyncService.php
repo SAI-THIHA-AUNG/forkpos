@@ -571,6 +571,43 @@ class SyncService
         return ['pushed' => $pushed, 'failed' => $failed, 'errors' => $errors];
     }
 
+    /**
+     * Submit Sales Invoices that an older ForkPOS pushed but left as drafts
+     * (before the push learned to submit). Only documents whose remarks say
+     * ForkPOS created them are touched; anything else in Draft is ignored.
+     *
+     * @return array{drafts: array<int, array{name: string, total: float, remarks: ?string}>, submitted: int, failed: array<int, string>}
+     */
+    public function submitForkposDrafts(bool $apply = false): array
+    {
+        $rows = $this->client->listAll('Sales Invoice', ['name', 'grand_total', 'remarks'], [
+            ['docstatus', '=', 0],
+            ['remarks', 'like', 'Synced from forkpos Laravel POS%'],
+        ], 100);
+
+        $drafts = array_map(fn (array $row) => [
+            'name' => (string) $row['name'],
+            'total' => (float) ($row['grand_total'] ?? 0),
+            'remarks' => $row['remarks'] ?? null,
+        ], $rows);
+
+        $submitted = 0;
+        $failed = [];
+
+        if ($apply) {
+            foreach ($drafts as $draft) {
+                try {
+                    $this->submitDoc('Sales Invoice', $this->client->doc('Sales Invoice', $draft['name']));
+                    $submitted++;
+                } catch (\Throwable $e) {
+                    $failed[] = $draft['name'].': '.$e->getMessage();
+                }
+            }
+        }
+
+        return ['drafts' => $drafts, 'submitted' => $submitted, 'failed' => $failed];
+    }
+
     protected function pushInvoice(Invoice $invoice): string
     {
         $customer = $invoice->customer;
