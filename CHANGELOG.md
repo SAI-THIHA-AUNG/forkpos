@@ -26,14 +26,24 @@ bounce with "Value missing for: Account Head".
   field. A tax with no Account Head and no ERPNext link fails with a clear,
   actionable reason before anything is posted to ERPNext (no half-created
   draft), and re-running the tax sync fixes it.
+- **The register's default tax now comes only from the POS profile's ERPNext
+  "Taxes and Charges" template.** The old fallback to a hard-coded
+  `is_default = true` tax meant a demo-seeded row (no Account Head, no ERPNext
+  link) leaked onto real ERPNext-synced profiles and blocked the push. A profile
+  with no template now sells without tax, matching ERPNext.
+- **Item groups with no sellable items no longer show in the register's
+  category list.** With "Hide Unavailable Items" on, a category whose items are
+  all out-of-stock was left behind as an empty filter/tile; the category list
+  now applies the same availability policy as the item grid.
 
 ### Added
 - `PosProfile::hideUnavailableItems()` reads the ERPNext flag from the doc
   snapshot (no migration — the flag already lives in `erpnext_data`).
 - `StockService::hideUnavailable()` applies the policy to a register item
   query in one place, used by the bootstrap, search and draft paths.
-- Tests: `HideUnavailableItemsTest`, `TaxAccountHeadPushTest`, and a flag
-  regression case in `PosProfileSyncTest` (136 tests / 735 assertions).
+- Tests: `HideUnavailableItemsTest`, `TaxAccountHeadPushTest`,
+  `ProfileTaxTemplateTest`, and a flag regression case in `PosProfileSyncTest`
+  (142 tests / 749 assertions).
 
 ## [0.7.0] — 2026-11-18
 

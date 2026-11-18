@@ -93,16 +93,19 @@ class StockService
     }
 
     /**
-     * Apply the profile's ERPNext "Hide Unavailable Items" policy to a
-     * register item query: stock items with non-positive stock in the
-     * profile's warehouse are not displayed. Non-stock items (services) are
-     * always sellable, and a profile without a warehouse cannot evaluate the
-     * policy, so the list stays untouched in both cases.
+     * The item constraint for the profile's ERPNext "Hide Unavailable Items"
+     * policy, or null when it does not apply (flag off, or no warehouse).
+     * Stock items with non-positive stock in the profile's warehouse are
+     * excluded; non-stock items (services) are always sellable. Reused by the
+     * register's item query and its category list so an item group with no
+     * sellable items never shows.
+     *
+     * @return (\Closure(Builder): void)|null
      */
-    public function hideUnavailable(Builder $query, PosProfile $profile): Builder
+    public function availableItemsFilter(PosProfile $profile): ?\Closure
     {
         if (! $profile->hideUnavailableItems() || ! $profile->warehouse_id) {
-            return $query;
+            return null;
         }
 
         $inStock = DB::table('stock_balances')
@@ -111,16 +114,32 @@ class StockService
             ->pluck('item_id')
             ->all();
 
-        return $query->where(function (Builder $scope) use ($inStock) {
-            $scope->where('is_stock_item', false)->orWhereIn('id', $inStock);
-        });
+        return function (Builder $query) use ($inStock): void {
+            $query->where(function (Builder $scope) use ($inStock): void {
+                $scope->where('is_stock_item', false)->orWhereIn('id', $inStock);
+            });
+        };
+    }
+
+    /**
+     * Apply the profile's ERPNext "Hide Unavailable Items" policy to a
+     * register item query: stock items with non-positive stock in the
+     * profile's warehouse are not displayed. Non-stock items (services) are
+     * always sellable, and a profile without a warehouse cannot evaluate the
+     * policy, so the list stays untouched in both cases.
+     */
+    public function hideUnavailable(Builder $query, PosProfile $profile): Builder
+    {
+        $filter = $this->availableItemsFilter($profile);
+
+        return $filter ? $query->where($filter) : $query;
     }
 
     /**
      * Stock qty map for a set of items (single query, avoids N+1 on the POS screen).
      *
      * @param  array<int, int>  $itemIds
-     * @return array<int, float>  item_id => qty (in the given warehouse, or total)
+     * @return array<int, float> item_id => qty (in the given warehouse, or total)
      */
     public function balancesFor(array $itemIds, ?int $warehouseId = null): array
     {

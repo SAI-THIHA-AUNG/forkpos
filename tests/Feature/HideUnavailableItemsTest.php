@@ -155,4 +155,71 @@ class HideUnavailableItemsTest extends TestCase
         $this->assertCount(1, $cart['lines']);
         $this->assertSame($this->inStock->item_code, $cart['lines'][0]['item']['item_code']);
     }
+
+    public function test_an_item_group_with_no_sellable_items_is_hidden_from_the_category_list(): void
+    {
+        $group = ItemGroup::create(['name' => 'Empty Group']);
+        $uom = Uom::firstOrFail();
+        $item = Item::create([
+            'item_code' => 'EMPTY-GROUP-ITEM',
+            'item_name' => 'Empty Group Item',
+            'item_group_id' => $group->id,
+            'stock_uom_id' => $uom->id,
+            'sales_uom_id' => $uom->id,
+            'is_stock_item' => true,
+            'standard_rate' => 1.00,
+            'allow_discount' => true,
+        ]);
+        StockBalance::create([
+            'item_id' => $item->id,
+            'warehouse_id' => $this->profile->warehouse_id,
+            'qty' => 0,
+        ]);
+
+        $cashier = User::where('email', 'cashier@pos.test')->firstOrFail();
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['pos_profile_id' => $this->profile->id])
+            ->get('/pos');
+        $response->assertOk();
+
+        $names = $response->viewData('groups')->pluck('name')->all();
+
+        $this->assertNotContains('Empty Group', $names, 'a category whose only item is out of stock is hidden');
+        $this->assertContains('Beverages', $names, 'a category with an in-stock item still shows');
+    }
+
+    public function test_an_item_group_whose_items_are_out_of_stock_still_shows_without_the_flag(): void
+    {
+        $this->profile->forceFill(['erpnext_data' => []])->save();
+
+        $group = ItemGroup::create(['name' => 'Empty Group']);
+        $uom = Uom::firstOrFail();
+        $item = Item::create([
+            'item_code' => 'EMPTY-GROUP-ITEM',
+            'item_name' => 'Empty Group Item',
+            'item_group_id' => $group->id,
+            'stock_uom_id' => $uom->id,
+            'sales_uom_id' => $uom->id,
+            'is_stock_item' => true,
+            'standard_rate' => 1.00,
+            'allow_discount' => true,
+        ]);
+        StockBalance::create([
+            'item_id' => $item->id,
+            'warehouse_id' => $this->profile->warehouse_id,
+            'qty' => 0,
+        ]);
+
+        $cashier = User::where('email', 'cashier@pos.test')->firstOrFail();
+
+        $response = $this->actingAs($cashier)
+            ->withSession(['pos_profile_id' => $this->profile->id])
+            ->get('/pos');
+        $response->assertOk();
+
+        $names = $response->viewData('groups')->pluck('name')->all();
+
+        $this->assertContains('Empty Group', $names, 'without the flag every non-empty category shows');
+    }
 }

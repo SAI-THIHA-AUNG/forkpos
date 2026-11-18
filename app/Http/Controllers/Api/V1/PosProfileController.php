@@ -46,12 +46,16 @@ class PosProfileController extends Controller
                     'receipt_header' => $setting->receipt_header,
                     'receipt_footer' => $setting->receipt_footer,
                 ],
-                'default_taxes' => Tax::where('is_default', true)->get(['id', 'name', 'rate', 'included_in_price'])->map(fn ($t) => [
-                    'id' => $t->id,
-                    'name' => $t->name,
-                    'rate' => (float) $t->rate,
-                    'included_in_price' => (bool) $t->included_in_price,
-                ]),
+                'default_taxes' => $profile->taxTemplate()
+                    ? Tax::where('erpnext_id', $profile->taxTemplate())
+                        ->get(['id', 'name', 'rate', 'included_in_price'])
+                        ->map(fn ($t) => [
+                            'id' => $t->id,
+                            'name' => $t->name,
+                            'rate' => (float) $t->rate,
+                            'included_in_price' => (bool) $t->included_in_price,
+                        ])
+                    : [],
             ]),
         ]);
     }

@@ -42,9 +42,16 @@ class PosController extends Controller
         $setting = Setting::current();
 
         // Only show leaf categories that actually contain sellable items
-        // (hide empty groups to avoid wasting space on the register).
+        // (hide empty groups to avoid wasting space on the register). With
+        // "Hide Unavailable Items" on, a category whose items are all
+        // out-of-stock is empty too and must not show.
         $groups = ItemGroup::where('is_group', false)
-            ->whereHas('items', fn ($q) => $q->where('disabled', false))
+            ->whereHas('items', function ($q) use ($profile) {
+                $q->where('disabled', false);
+                if ($filter = $this->stock->availableItemsFilter($profile)) {
+                    $q->where($filter);
+                }
+            })
             ->orderBy('name')
             ->get(['id', 'name']);
         $currentShift = $this->shifts->currentOpenShift($request->user());
@@ -71,16 +78,14 @@ class PosController extends Controller
             ->get();
         $stockMap = $this->stock->balancesFor($items->pluck('id')->all(), $profile->warehouse_id);
 
-        // Default taxes — the register applies the default tax template to
-        // each line unless the client overrides per line.
-        // The profile's own ERPNext tax template wins; otherwise the default templates.
-        $defaultTaxes = Tax::query()
-            ->when(
-                $profile->taxTemplate(),
-                fn ($q, $tpl) => $q->where('erpnext_id', $tpl),
-                fn ($q) => $q->where('is_default', true)
-            )
-            ->get(['id', 'name', 'rate', 'included_in_price']);
+        // Default taxes — the register applies the profile's own ERPNext
+        // "Taxes and Charges" template to each line. Profiles with no template
+        // get no default tax (ERPNext's own behaviour: no template on the
+        // profile = no tax on the sale).
+        $defaultTaxes = $profile->taxTemplate()
+            ? Tax::where('erpnext_id', $profile->taxTemplate())
+                ->get(['id', 'name', 'rate', 'included_in_price'])
+            : collect();
 
         $draft = $request->query('draft')
             ? PosDraft::with('customer')->where('pos_profile_id', $profile->id)->find($request->query('draft'))
