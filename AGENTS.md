@@ -70,7 +70,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 ## Artisan
 
-- Run Artisan commands directly via the command line (e.g., `php artisan route:list`). Use `php artisan list` to discover available commands and `php artisan [command] --help` to check parameters.
+- Run Artisan commands directly via the command line (e.g. `php artisan route:list`). Use `php artisan list` to discover available Artisan commands and `php artisan [command] --help` to check parameters.
 - Inspect routes with `php artisan route:list`. Filter with: `--method=GET`, `--name=users`, `--path=api`, `--except-vendor`, `--only-vendor`.
 - Read configuration values using dot notation: `php artisan config:show app.name`, `php artisan config:show database.default`. Or read config files directly from the `config/` directory.
 
@@ -219,7 +219,7 @@ The Boost rule "only create documentation files if asked" applies to NEW files. 
 - The credit alert must never block or slow a sale: fire-and-forget fetches, ignore failures, drop stale responses.
 - Do not pass inline PHP arrays with commas to `@json(...)`; build them first with `@php($collect = [...])`.
 - A function name or `const` must exist once per page script (the register already defines `esc` and `fmtAmount`).
-- After editing Blade or inline JS, run `php artisan view:cache` (then `view:clear`) and `node --check` on the extracted script.
+- JavaScript lives inline in Blade views (`register.blade.php`, `credit/_collect_modal.blade.php`); there are no standalone `.js` files. After editing Blade or inline JS, run `php artisan view:cache` (then `view:clear`), then copy each `<script>` body into a temp `.js` file (replace `{{ }}`/`@json` with placeholders) and run `node --check` on it.
 
 ## Tests
 
@@ -235,7 +235,7 @@ The Boost rule "only create documentation files if asked" applies to NEW files. 
 1. Code follows sibling files and the rules above.
 2. Tests added or updated, full suite green.
 3. `vendor/bin/pint --dirty --format agent` run.
-4. Blade views compile (`php artisan view:cache`) and inline JS passes `node --check`.
+4. Blade views compile (`php artisan view:cache`) and the inline `<script>` blocks in Blade views pass `node --check` after extraction (there are no standalone JS files).
 5. README test count and CHANGELOG updated.
 6. Anything that talks to ERPNext is exercised against a real ERPNext (trial site) at least once, or the hand-off says plainly that it was not.
 7. Commit messages end with the attribution trailers the session requires. Never commit secrets.
