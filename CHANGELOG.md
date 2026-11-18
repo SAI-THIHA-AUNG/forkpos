@@ -9,24 +9,52 @@ and the project follows rough semantic versioning.
 Credit collection across vans, and van-aware document numbering.
 
 ### Added
-- **Credit collect**: `credit_invoices` (unpaid Sales Invoices from *any* van,
-  filled by ERPNext pull and this van's own credit sales) and `collections`
-  (money taken against them), plus `CreditService`, `CreditController`,
-  `/credit` pages and a register credit-alert chip + slide-over (list → detail →
-  collect).
-- **Van-aware numbering**: `van_code` on POS profiles and invoices + the
-  `DocNaming` helper. Invoice numbers are `{ERPNext series}{VAN}-[CR-]{YYYY}-#####`
-  (e.g. `ACC-SINV-TVP-2026-00001`) and collections are `COL-{VAN}-{YYYY}-#####`,
-  so two vans can never collide. The van ID is editable in Settings.
-- **ERPNext sync**: `naming_series` and `credit_invoice` pull entities, and
-  collections push back as submitted Payment Entries (idempotent; ERPNext rejects
-  a double collection → marked failed → can be discarded).
+- `credit_invoices` (unpaid Sales Invoices from *any* van) and `collections`
+  tables + `CreditInvoice` / `Collection` models + `CreditService` +
+  `CreditController` + `/credit` pages and a register credit-alert chip + slide-over.
+- `van_code` on POS profiles and invoices + the `DocNaming` helper.
+- `naming_series` and `credit_invoice` pull entities; collections pushed as
+  submitted Payment Entries.
 
-### Changed
-- A short payment now becomes a credit sale automatically (register requires a
-  named customer and confirms the owed amount); the balance is tracked in
-  `credit_invoices` and respects the customer's `credit_limit`.
-- Cancelling a sale with collections recorded against it is refused.
+### How it works
+
+**1. Making a credit sale (Register).** Add items and choose a customer. If the
+payment is less than the total, the balance becomes a credit sale. Credit needs a
+named customer — walk-in must pay in full. The customer's credit limit is checked,
+and a sale that would go over it is refused. The invoice number carries the van ID
+(e.g. `ACC-SINV-TVP-2026-00001`; returns add `CR`). The sale pushes to ERPNext with
+a due date: nothing paid → plain Sales Invoice, part-paid → POS invoice with payments.
+
+**2. Seeing a customer's credit (Register).** Selecting a customer with unpaid
+invoices shows an amber line under the customer box (invoice count, total, overdue
+count) — it never blocks the sale. Click it to open a side panel of unpaid invoices;
+click an invoice to see its item lines, due date, van and past collections, with a
+**Quick collect** button per invoice and **Collect** on the detail. The cart is left
+as it was.
+
+**3. Collecting a payment.** Quick-collect icons in the Sales list, on the invoice
+page and on the Credit page all open the same dialog. Enter an amount (partial or
+full, never above the balance), a payment mode and an optional reference. The
+collection gets a number like `COL-TVP-2026-00001`, is added to the open shift's
+cash, and updates the invoice balance and status immediately. A double click or
+retry cannot collect twice.
+
+**4. Credit page.** Lists every unpaid credit invoice from all vans, with search, a
+van filter and an overdue flag. **Refresh from ERPNext** pushes waiting collections
+and pulls the latest unpaid invoices. Collections ERPNext rejected appear at the top
+with the reason and can be discarded to free the balance.
+
+**5. Syncing between vans.** Each sync pulls all unpaid Sales Invoices, whichever van
+made them, so Van 1's invoice shows up and can be collected on Van 2. Collections
+push as Payment Entries, after the invoices. An invoice ERPNext no longer lists
+(another van collected it) is closed locally. If two vans collect the same invoice,
+ERPNext rejects the second — that collection is marked rejected and can be discarded.
+A sale that has collections against it cannot be cancelled.
+
+**6. Naming and Van ID.** Each POS profile has a Van ID, editable by a manager in
+Settings; two profiles cannot share one. Local numbers are
+`{ERPNext series}{VAN}-{YYYY}-#####`, and the same van series is sent to ERPNext so
+its names carry the van ID too.
 
 ## [0.6.0] — 2026-11-17
 
