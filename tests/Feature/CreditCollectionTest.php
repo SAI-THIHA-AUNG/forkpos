@@ -505,4 +505,21 @@ class CreditCollectionTest extends TestCase
         Http::assertNotSent(fn ($request) => $request->method() === 'POST'
             && str_contains($request->url(), '/api/resource/Payment Entry'));
     }
+
+    public function test_pull_does_not_overwrite_the_status_of_a_returned_sale(): void
+    {
+        $this->creditSale(2.0)->assertCreated();
+        $invoice = Invoice::firstOrFail();
+        $invoice->update(['erpnext_id' => 'ACC-SINV-TVP-2026-00099', 'status' => Invoice::STATUS_RETURNED]);
+        $this->credit()->update(['erpnext_id' => 'ACC-SINV-TVP-2026-00099']);
+
+        $this->fakeErp([[
+            'name' => 'ACC-SINV-TVP-2026-00099', 'customer' => 'Aung Shop', 'customer_name' => 'Aung Shop',
+            'posting_date' => now()->toDateString(), 'due_date' => now()->addDays(7)->toDateString(), 'currency' => 'USD',
+            'grand_total' => 4.8, 'outstanding_amount' => 2.8, 'pos_profile' => 'Main POS', 'modified' => '2026-11-18 10:00:00',
+        ]]);
+        app(SyncService::class)->pullMasters(['credit_invoice']);
+
+        $this->assertSame(Invoice::STATUS_RETURNED, $invoice->fresh()->status);
+    }
 }

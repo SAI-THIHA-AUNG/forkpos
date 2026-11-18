@@ -458,7 +458,8 @@ class SyncService
             if ($credit->invoice_id) {
                 $left = max(0.0, round($outstanding - $pending, 6));
                 Invoice::whereKey($credit->invoice_id)
-                    ->where('status', '!=', Invoice::STATUS_CANCELLED)
+                    // Cancelled and returned sales keep their own status; ERPNext's balance must not turn them back into paid/unpaid.
+                    ->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_RETURNED])
                     ->update([
                         'outstanding_amount' => $left,
                         'paid_amount' => round($grand - $left, 6),
