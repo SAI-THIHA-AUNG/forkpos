@@ -19,7 +19,7 @@ class ReportController extends Controller
 
         $sales = Invoice::whereDate('posting_date', $today)
             ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->selectRaw("
+            ->selectRaw('
                 COUNT(*) as invoice_count,
                 COALESCE(SUM(CASE WHEN is_return = 0 THEN grand_total ELSE 0 END), 0) as gross_sales,
                 COALESCE(SUM(CASE WHEN is_return = 1 THEN grand_total ELSE 0 END), 0) as returns_total,
@@ -27,7 +27,7 @@ class ReportController extends Controller
                 COALESCE(SUM(tax_total), 0) as tax_total,
                 COALESCE(SUM(grand_total), 0) as grand_total,
                 COALESCE(SUM(discount_total), 0) as discount_total
-            ")->first();
+            ')->first();
 
         $paymentBreakdown = DB::table('invoice_payments')
             ->join('invoices', 'invoices.id', '=', 'invoice_payments.invoice_id')
@@ -106,6 +106,13 @@ class ReportController extends Controller
             ->orderBy('id')
             ->get();
 
+        $payments = $invoices->flatMap->payments
+            ->groupBy('mode_of_payment')
+            ->map(fn ($rows, $mode) => [
+                'mode_of_payment' => $mode,
+                'total' => round((float) $rows->sum('amount'), 2),
+            ])->values();
+
         $totals = [
             'invoice_count' => $invoices->count(),
             'returns_count' => $invoices->where('is_return', true)->count(),
@@ -113,15 +120,11 @@ class ReportController extends Controller
             'tax_total' => round((float) $invoices->sum('tax_total'), 2),
             'discount_total' => round((float) $invoices->sum('discount_total'), 2),
             'grand_total' => round((float) $invoices->sum('grand_total'), 2),
-            'paid_amount' => round((float) $invoices->sum('paid_amount'), 2),
+            // From the payment rows, not the cached invoice field: an ERPNext desk
+            // payment or a cancelled Payment Entry changes paid_amount, and this
+            // figure must still reflect what this van took.
+            'paid_amount' => round((float) $invoices->flatMap->payments->sum('amount'), 2),
         ];
-
-        $payments = $invoices->flatMap->payments
-            ->groupBy('mode_of_payment')
-            ->map(fn ($rows, $mode) => [
-                'mode_of_payment' => $mode,
-                'total' => round((float) $rows->sum('amount'), 2),
-            ])->values();
 
         return response()->json([
             'data' => [

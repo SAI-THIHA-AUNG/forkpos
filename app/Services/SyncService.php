@@ -480,7 +480,10 @@ class SyncService
             }
             $gone->update(['status' => CreditInvoice::STATUS_SETTLED, 'erp_outstanding' => 0, 'paid_amount' => $gone->grand_total, 'synced_at' => now()]);
             if ($gone->invoice_id) {
-                Invoice::whereKey($gone->invoice_id)->update(['outstanding_amount' => 0, 'paid_amount' => $gone->grand_total, 'status' => Invoice::STATUS_PAID]);
+                Invoice::whereKey($gone->invoice_id)
+                    // Same rule as the mirror: a returned or cancelled sale keeps its status.
+                    ->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_RETURNED])
+                    ->update(['outstanding_amount' => 0, 'paid_amount' => $gone->grand_total, 'status' => Invoice::STATUS_PAID]);
             }
         }
 

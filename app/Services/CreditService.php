@@ -250,11 +250,14 @@ class CreditService
             return;
         }
         $left = max(0.0, $left);
-        Invoice::whereKey($credit->invoice_id)->update([
-            'outstanding_amount' => $left,
-            'paid_amount' => round((float) $credit->grand_total - $left, 6),
-            'status' => $left <= 0.009 ? Invoice::STATUS_PAID : Invoice::STATUS_PARTLY_PAID,
-        ]);
+        Invoice::whereKey($credit->invoice_id)
+            // A returned or cancelled sale keeps its status; a collection must not revive it.
+            ->whereNotIn('status', [Invoice::STATUS_CANCELLED, Invoice::STATUS_RETURNED])
+            ->update([
+                'outstanding_amount' => $left,
+                'paid_amount' => round((float) $credit->grand_total - $left, 6),
+                'status' => $left <= 0.009 ? Invoice::STATUS_PAID : Invoice::STATUS_PARTLY_PAID,
+            ]);
     }
 
     /** COL-{VAN}-{YYYY}-##### — the van id keeps two vans' receipts apart. */

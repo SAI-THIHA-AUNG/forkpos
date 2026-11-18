@@ -60,7 +60,13 @@ Credit collection across vans, and van-aware document numbering.
   receipt being posted before it.
 - The unpaid-invoice pull now writes ERPNext's balance back onto the local invoice
   as well, so a payment taken on the desk or by another van (or a Payment Entry
-  cancelled there) no longer leaves our sale showing the old status.
+  cancelled there) no longer leaves our sale showing the old status. Returned and
+  cancelled sales keep their own status — both when the invoice is still in
+  ERPNext's unpaid list and when it drops out of it — and a collection taken on
+  such a sale no longer revives it either.
+- `GET /reports/daily-summary` now takes `paid_amount` from the payment rows
+  instead of the cached invoice field, so a desk payment cannot inflate the
+  day's total.
 
 ### How it works
 

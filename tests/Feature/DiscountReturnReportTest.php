@@ -179,6 +179,20 @@ class DiscountReturnReportTest extends TestCase
         $this->assertEqualsWithDelta($row['opening'] - 4, $row['closing'], 0.0001);
     }
 
+    public function test_daily_summary_paid_amount_comes_from_payment_rows_not_the_invoice_cache(): void
+    {
+        $sale = $this->sell(['payments' => [['mode_of_payment' => 'Cash', 'amount' => 4.80]]], qty: 4);
+
+        // What the ERPNext pull writes when the balance changes there: only the
+        // cached field moves, the till's payment row stays as it was taken.
+        Invoice::whereKey($sale['id'])->update(['paid_amount' => 0, 'outstanding_amount' => 4.80]);
+
+        $res = $this->getJson('/api/v1/reports/daily-summary?date='.now()->toDateString(), $this->headers)->assertOk();
+
+        $this->assertEqualsWithDelta(4.80, $res->json('data.totals.paid_amount'), 0.005);
+        $this->assertEqualsWithDelta(4.80, $res->json('data.payments.0.total'), 0.005);
+    }
+
     public function test_inventory_movement_balances_for_a_past_range(): void
     {
         $this->sell(qty: 4);

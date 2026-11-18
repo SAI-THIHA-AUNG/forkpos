@@ -522,4 +522,36 @@ class CreditCollectionTest extends TestCase
 
         $this->assertSame(Invoice::STATUS_RETURNED, $invoice->fresh()->status);
     }
+
+    public function test_collecting_on_a_returned_sale_does_not_change_its_status(): void
+    {
+        $this->creditSale(2.0)->assertCreated();
+        $invoice = Invoice::firstOrFail();
+        $invoice->update(['status' => Invoice::STATUS_RETURNED]);
+
+        $credit = $this->credit();
+        $this->web()->postJson("/credit/{$credit->id}/collect", ['amount' => 1, 'mode_of_payment' => 'Cash'])->assertCreated();
+
+        $this->assertSame(Invoice::STATUS_RETURNED, $invoice->fresh()->status);
+    }
+
+    public function test_pull_does_not_mark_a_returned_sale_paid_when_it_leaves_the_unpaid_list(): void
+    {
+        $this->creditSale(2.0)->assertCreated();
+        $invoice = Invoice::firstOrFail();
+        $invoice->update([
+            'erpnext_id' => 'ACC-SINV-TVP-2026-00099', 'status' => Invoice::STATUS_RETURNED,
+            'outstanding_amount' => 2.8, 'paid_amount' => 2.0,
+        ]);
+        $this->credit()->update(['erpnext_id' => 'ACC-SINV-TVP-2026-00099', 'van_code' => 'TVP']);
+
+        // Paid or cancelled elsewhere, so ERPNext no longer lists it as unpaid.
+        $this->fakeErp([]);
+        app(SyncService::class)->pullMasters(['credit_invoice']);
+
+        $invoice->refresh();
+        $this->assertSame(Invoice::STATUS_RETURNED, $invoice->status);
+        $this->assertEqualsWithDelta(2.0, $invoice->paid_amount, 0.005);
+        $this->assertEqualsWithDelta(2.8, $invoice->outstanding_amount, 0.005);
+    }
 }
