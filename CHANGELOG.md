@@ -58,6 +58,9 @@ Credit collection across vans, and van-aware document numbering.
   that left them as drafts. Dry run by default; `--apply` submits them oldest
   posting date first, because an update-stock invoice can depend on a later
   receipt being posted before it.
+- Discarding the only collection (rejected or manual) returns the invoice to unpaid
+  status instead of partly paid, so the status always reflects what has actually
+  been paid.
 - The unpaid-invoice pull now writes ERPNext's balance back onto the local invoice
   as well, so a payment taken on the desk or by another van (or a Payment Entry
   cancelled there) no longer leaves our sale showing the old status. Returned and
