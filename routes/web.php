@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Web\AuthController;
+use App\Http\Controllers\Web\CreditController;
 use App\Http\Controllers\Web\CustomerController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\DraftController;
@@ -55,6 +56,8 @@ Route::middleware('auth')->group(function () {
 
             Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
             Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+            Route::put('/settings/pos-profile/{profile}/van-code', [SettingController::class, 'updateVanCode'])
+                ->name('settings.van-code');
             Route::post('/settings/sync-pos-profile', [SettingController::class, 'syncPosProfile'])
                 ->name('settings.sync-pos-profile');
 
@@ -95,6 +98,15 @@ Route::middleware('auth')->group(function () {
             Route::get('/customers/{customer}/edit', [CustomerController::class, 'edit'])->name('customers.edit');
             Route::put('/customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
             Route::get('/customers/{customer}', [CustomerController::class, 'show'])->name('customers.show');
+
+            // Credit sales & collections (unpaid invoices of every van)
+            Route::get('/credit', [CreditController::class, 'index'])->name('credit.index');
+            Route::post('/credit/refresh', [CreditController::class, 'refresh'])->name('credit.refresh');
+            Route::get('/credit/customer/{customer}', [CreditController::class, 'customer'])->name('credit.customer');
+            Route::post('/credit/collections/{collection}/discard', [CreditController::class, 'discard'])->name('credit.discard');
+            Route::get('/credit/{credit}/detail', [CreditController::class, 'detail'])->name('credit.detail');
+            Route::post('/credit/{credit}/collect', [CreditController::class, 'collect'])->name('credit.collect');
+            Route::get('/credit/{credit}', [CreditController::class, 'show'])->name('credit.show');
 
             // Invoices / sales history / returns / cancel
             Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');

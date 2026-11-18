@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Coupon;
+use App\Models\CreditInvoice;
 use App\Models\Customer;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -14,6 +15,7 @@ use App\Models\Setting;
 use App\Models\Tax;
 use App\Models\Uom;
 use App\Models\User;
+use App\Support\DocNaming;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -164,7 +166,8 @@ class InvoiceService
                 'sync_status' => 'pending',
             ]);
             $invoice->posting_date = $invoice->posting_datetime->toDateString();
-            $invoice->invoice_no = $this->nextInvoiceNumber($setting);
+            $invoice->van_code = $profile->ensureVanCode();
+            $invoice->invoice_no = $this->nextInvoiceNumber($setting, $profile, $isReturn);
             $invoice->save();
 
             // ---- Items ----------------------------------------------------------
@@ -456,6 +459,11 @@ class InvoiceService
             $changeAmount = max(0.0, $paidAmount - $grandTotal);
             $outstanding = round($grandTotal - $paidAmount + $changeAmount, $precision);
 
+            // A short payment is a CREDIT sale: it must fit the customer's credit limit.
+            if (! $isReturn && $outstanding > 0.009) {
+                app(CreditService::class)->assertCreditAllowed($customer, $outstanding);
+            }
+
             $pointsEarned = 0;
             if (! $isReturn && ! $customer->is_walk_in && $netTotal >= 100) {
                 // Simple default policy: 1 point per 100.00 spent (see README roadmap).
@@ -506,6 +514,10 @@ class InvoiceService
                 'coupon_discount' => round($couponDiscount, 6),
                 'loyalty_points_earned' => $pointsEarned,
             ])->save();
+
+            if (! $isReturn && $outstanding > 0.009) {
+                app(CreditService::class)->registerFromInvoice($invoice->load('items'));
+            }
 
             return ['invoice' => $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier']), 'duplicate' => false];
         });
@@ -644,7 +656,15 @@ class InvoiceService
             throw ValidationException::withMessages(['reason' => ['Say why the sale is being cancelled.']]);
         }
 
-        return DB::transaction(function () use ($invoice, $user, $reason) {
+        // Money already collected against a credit sale can't silently vanish.
+        $credit = $invoice->creditInvoice;
+        if ($credit && $credit->collections()->exists()) {
+            throw ValidationException::withMessages([
+                'invoice' => ["Invoice {$invoice->invoice_no} has collections recorded against it and cannot be cancelled."],
+            ]);
+        }
+
+        return DB::transaction(function () use ($invoice, $user, $reason, $credit) {
             // Lock + re-read so two clicks (or two terminals) cannot cancel twice.
             $invoice = Invoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
             if ($message = $this->cancellationBlocker($invoice, $user)) {
@@ -653,6 +673,11 @@ class InvoiceService
 
             $invoice->load(['items.item', 'payments']);
 
+            if ($credit) {
+                $credit->update(['status' => CreditInvoice::STATUS_CANCELLED]);
+            }
+
+            // Put stock back for a cancelled sale (or take it back for a cancelled return).
             foreach ($invoice->items as $line) {
                 if ($line->item && $line->item->is_stock_item) {
                     $this->stock->postMovement(
@@ -769,19 +794,24 @@ class InvoiceService
     }
 
     /**
-     * POS-YYYY-##### using a settings counter inside the current transaction.
-     * The prefix comes from the synced ERPNext naming series (see
-     * App\Services\NamingSeries), so the local number keeps ERPNext's shape.
+     * {ERPNext series prefix}{VAN}-[CR-]{YYYY}-##### — e.g. ACC-SINV-TVP-2026-00001.
+     *
+     * The prefix is ERPNext's Sales Invoice naming series (pulled on sync; the
+     * local `invoice_prefix` until then) and the van id comes from the POS
+     * profile, so two vans can never mint the same number. The counter lives in
+     * settings and is bumped inside the current transaction.
      */
-    protected function nextInvoiceNumber(Setting $setting): string
+    protected function nextInvoiceNumber(Setting $setting, PosProfile $profile, bool $isReturn): string
     {
-        $prefix = $setting->invoice_prefix.now()->year.'-';
+        $series = DocNaming::seriesPrefix($setting->erpnext_naming_series);
+        $prefix = $series !== '' ? $series : (string) $setting->invoice_prefix;
+
         $seq = $setting->next_invoice_number;
         $setting->next_invoice_number = $seq + 1;
         $setting->save();
         Setting::flushCache();
 
-        return $prefix.str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
+        return DocNaming::number($prefix, $profile->ensureVanCode(), $isReturn ? 'CR' : '', now()->year, $seq);
     }
 
     protected function nextCode(string $table, string $column, string $prefix): string

@@ -33,7 +33,7 @@
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <table class="w-full text-sm">
             <thead><tr class="text-xs text-slate-500 uppercase tracking-wide border-b border-slate-100 bg-slate-50">
-                <th class="text-left px-4 py-2">Invoice</th><th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">Customer</th><th class="text-left px-4 py-2">Cashier</th><th class="text-center px-4 py-2">Status</th><th class="text-left px-4 py-2">Due</th><th class="text-right px-4 py-2">Total</th><th class="text-center px-4 py-2">Sync</th><th></th>
+                <th class="text-left px-4 py-2">Invoice</th><th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">Customer</th><th class="text-left px-4 py-2">Cashier</th><th class="text-center px-4 py-2">Status</th><th class="text-right px-4 py-2">Total</th><th class="text-right px-4 py-2">Due</th><th class="text-center px-4 py-2">Sync</th><th></th>
             </tr></thead>
             <tbody>
                 @forelse ($invoices as $inv)
@@ -43,14 +43,21 @@
                     <td class="px-4 py-2">{{ $inv->customer?->customer_name ?? '—' }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $inv->cashier?->name ?? '—' }}</td>
                     <td class="px-4 py-2 text-center"><span class="text-xs px-2 py-0.5 rounded-full @if($inv->status==='paid')bg-green-100 text-green-700 @elseif($inv->status==='cancelled')bg-slate-200 text-slate-500 @else bg-amber-100 text-amber-700 @endif">{{ ucfirst(str_replace('_',' ',$inv->status)) }}</span></td>
-                    <td class="px-4 py-2 text-xs {{ $inv->isOverdue() ? 'text-red-600 font-semibold' : 'text-slate-500' }}">@if($inv->is_credit && $inv->due_date){{ $inv->due_date->format('M j') }}{{ $inv->isOverdue() ? ' · overdue' : '' }}@else—@endif</td>
                     <td class="px-4 py-2 text-right font-medium {{ $inv->is_return ? 'text-red-600' : '' }}">{{ $inv->is_return ? '−' : '' }}{{ \App\Support\Money::format($inv->grand_total, 2) }}</td>
+                    @php($cr = $inv->creditInvoice)
+                    @php($due = ($cr && $cr->status === 'open') ? $cr->outstanding : 0)
+                    <td class="px-4 py-2 text-right {{ $due > 0.009 ? 'font-semibold text-amber-700' : 'text-slate-300' }}">{{ $due > 0.009 ? \App\Support\Money::format($due, 2) : '—' }}</td>
                     <td class="px-4 py-2 text-center">
                         @if($inv->sync_status === 'synced')<span class="text-xs text-green-600">✓</span>
                         @elseif($inv->sync_status === 'failed')<span class="text-xs text-red-500" title="{{ $inv->erpnext_id }}">!</span>
                         @else<span class="text-xs text-slate-300">·</span>@endif
                     </td>
                     <td class="px-4 py-2 text-right whitespace-nowrap">
+                        @if ($due > 0.009)
+                        @php($collect = ['id' => $cr->id, 'invoice_no' => $inv->invoice_no, 'outstanding' => $due, 'customer' => $inv->customer?->customer_name])
+                        <button type="button" title="Quick collect" class="inline-flex items-center justify-center w-7 h-7 mr-1 rounded-full bg-green-100 hover:bg-green-200 text-green-700 align-middle"
+                            onclick='openCollect(@json($collect))'>💵</button>
+                        @endif
                         <a href="{{ route('invoices.show', $inv) }}" class="text-brand-600 hover:underline text-xs">View</a>
                         @if (! $inv->is_return && $inv->status !== 'cancelled')
                         <a href="{{ route('invoices.return.form', $inv) }}" class="ml-3 text-amber-600 hover:underline text-xs">Return</a>
@@ -65,4 +72,5 @@
     </div>
     {{ $invoices->links() }}
 </div>
+@include('pos.credit._collect_modal')
 @endsection

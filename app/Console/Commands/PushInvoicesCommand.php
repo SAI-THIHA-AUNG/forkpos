@@ -22,6 +22,7 @@ class PushInvoicesCommand extends Command
 
         try {
             $result = $sync->pushInvoices($ids);
+            $collections = $ids ? null : $sync->pushCollections();
         } catch (\Throwable $e) {
             $this->error($e->getMessage());
 
@@ -31,6 +32,14 @@ class PushInvoicesCommand extends Command
         $this->info("Pushed: {$result['pushed']}, Failed: {$result['failed']}");
         foreach ($result['errors'] as $error) {
             $this->warn(" - {$error}");
+        }
+
+        if ($collections) {
+            $this->info("Collections pushed: {$collections['pushed']}, Failed: {$collections['failed']}");
+            foreach ($collections['errors'] as $error) {
+                $this->warn(" - {$error}");
+            }
+            $result['failed'] += $collections['failed'];
         }
 
         return $result['failed'] ? self::FAILURE : self::SUCCESS;

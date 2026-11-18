@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\Collection;
+use App\Models\CreditInvoice;
 use App\Models\Invoice;
 use App\Models\PosProfile;
 use App\Models\Setting;
@@ -49,13 +51,16 @@ class SyncController extends Controller
             'pendingCount' => Invoice::where('sync_status', 'pending')->where('status', '!=', 'cancelled')->count(),
             'failedCount' => Invoice::where('sync_status', 'failed')->count(),
             'syncedCount' => Invoice::where('sync_status', 'synced')->count(),
+            'collectionsPending' => Collection::where('sync_status', Collection::PENDING)->count(),
+            'collectionsFailed' => Collection::where('sync_status', Collection::FAILED)->count(),
+            'openCredit' => CreditInvoice::open()->count(),
             'recent' => $recent,
         ]);
     }
 
     public function pullMasters(Request $request)
     {
-        $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
+        $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'naming_series', 'credit_invoice', 'stock'];
 
         // The form is a single free-text field: "uom,item,stock". Normalise it
         // into the array the validator (and the sync service) expect.
@@ -133,6 +138,14 @@ class SyncController extends Controller
             $errors = $result['errors'] ?? [];
 
             $message = "Pushed {$pushed} invoice(s), failed {$failed}.";
+
+            // Collections go after invoices: a Payment Entry needs its invoice in ERPNext first.
+            if (! $ids) {
+                $col = $this->sync->pushCollections();
+                $message .= " Collections: pushed {$col['pushed']}, failed {$col['failed']}.";
+                $failed += $col['failed'];
+                $errors = array_merge($errors, $col['errors']);
+            }
             if ($errors) {
                 $message .= ' '.implode(' | ', array_slice($errors, 0, 5));
             }

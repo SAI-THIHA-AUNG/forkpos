@@ -17,7 +17,7 @@ class InvoiceController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $query = Invoice::with(['customer', 'cashier', 'posProfile'])
+        $query = Invoice::with(['customer', 'cashier', 'posProfile', 'creditInvoice' => fn ($q) => $q->withPending()])
             ->when($request->query('status'), fn ($q, $s) => $q->where('status', $s))
             ->when($request->query('type') === 'return', fn ($q) => $q->where('is_return', true))
             ->when($request->query('credit') === 'credit', fn ($q) => $q->where('is_credit', true))
@@ -49,7 +49,7 @@ class InvoiceController extends Controller
 
     public function show(Invoice $invoice)
     {
-        $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier', 'posProfile', 'shift', 'returns', 'canceller']);
+        $invoice->load(['items', 'payments', 'taxes', 'customer', 'cashier', 'posProfile', 'shift', 'returns', 'canceller', 'creditInvoice']);
 
         return view('pos.invoices.show', [
             'invoice' => $invoice,

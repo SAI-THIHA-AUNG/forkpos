@@ -155,6 +155,20 @@ class ErpNextClient
     }
 
     /**
+     * Call a whitelisted server method: GET (query args) or POST (JSON body) /api/method/{name}.
+     * Returns the full decoded response ("message" holds the method's return value,
+     * except for a few desk methods such as getdoctype that answer at the top level).
+     */
+    public function call(string $method, array $args = [], bool $post = false): array
+    {
+        $path = '/api/method/'.$method;
+
+        return $post
+            ? $this->request('post', $path, null, $args)
+            : $this->request('get', $path, $args);
+    }
+
+    /**
      * GET /api/method/ping — host reachability only (does NOT validate credentials).
      */
     public function ping(): array
@@ -205,12 +219,32 @@ class ErpNextClient
         }
         if ($response->failed()) {
             // Frappe validation errors come as 4xx with {"exc_type":..., "_server_messages": ...} or {"data": ...}
-            $message = $response->json('message')
+            $message = $this->serverMessage($response->json() ?? [])
+                ?? $response->json('message')
                 ?? $response->json('exc_type')
                 ?? mb_substr($response->body(), 0, 500);
             throw new RuntimeException("ERPNext rejected the request (HTTP {$response->status()}): {$message}");
         }
 
         return $response->json() ?? [];
+    }
+
+    /** Frappe puts the human-readable reason in `_server_messages` (a JSON string of JSON strings). */
+    protected function serverMessage(array $body): ?string
+    {
+        $raw = $body['_server_messages'] ?? null;
+        if (! is_string($raw) || $raw === '') {
+            return null;
+        }
+        $parts = [];
+        foreach ((array) json_decode($raw, true) as $entry) {
+            $decoded = is_string($entry) ? json_decode($entry, true) : $entry;
+            $text = is_array($decoded) ? ($decoded['message'] ?? null) : null;
+            if (is_string($text) && $text !== '') {
+                $parts[] = trim(strip_tags($text));
+            }
+        }
+
+        return $parts ? mb_substr(implode(' ', $parts), 0, 500) : null;
     }
 }

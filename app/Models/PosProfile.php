@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\DocNaming;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,7 +16,7 @@ class PosProfile extends Model
     // are owned by ERPNext — local edits MUST be rejected by the controller layer
     // (see Api\V1\PosProfileController::update + Web\SettingController::syncPosProfile).
     protected $fillable = [
-        'name', 'company', 'country', 'currency', 'warehouse_id', 'selling_price_list',
+        'name', 'van_code', 'company', 'country', 'currency', 'warehouse_id', 'selling_price_list',
         'allow_rate_change', 'allow_discount_change', 'allow_negative_stock',
         'tax_inclusive', 'write_off_limit', 'write_off_account', 'cost_center',
         'max_discount_percentage',
@@ -57,6 +58,27 @@ class PosProfile extends Model
         return $this->belongsToMany(User::class, 'pos_profile_users', 'pos_profile_id', 'user_id')
             ->withPivot('is_default')
             ->withTimestamps();
+    }
+
+    /**
+     * The van id used in this profile's document numbers. Created on first use
+     * from the profile name ("Test Van POS" → TVP), made unique, and editable
+     * by a manager in Settings.
+     */
+    public function ensureVanCode(): string
+    {
+        if ($this->van_code) {
+            return $this->van_code;
+        }
+
+        $base = DocNaming::suggestVanCode((string) $this->name);
+        $code = $base;
+        for ($n = 2; static::where('van_code', $code)->where('id', '!=', $this->id)->exists(); $n++) {
+            $code = substr($base, 0, 8 - strlen((string) $n)).$n;
+        }
+        $this->forceFill(['van_code' => $code])->save();
+
+        return $code;
     }
 
     public function paymentModes(): array

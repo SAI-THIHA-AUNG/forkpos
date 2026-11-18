@@ -8,6 +8,7 @@ use App\Models\Setting;
 use App\Models\Tax;
 use App\Services\ErpNextClient;
 use App\Services\PosProfileSync;
+use App\Support\DocNaming;
 use Illuminate\Http\Request;
 use Throwable;
 
@@ -99,6 +100,21 @@ class SettingController extends Controller
         }
 
         return back()->with('success', implode(' ', $messages));
+    }
+
+    /** PUT /settings/pos-profile/{profile}/van-code — the van id used in invoice/collection numbers. */
+    public function updateVanCode(Request $request, PosProfile $profile)
+    {
+        $code = DocNaming::normaliseVanCode((string) $request->input('van_code'));
+        if ($code === '') {
+            return back()->with('error', 'Van ID needs 1-8 letters or digits.');
+        }
+        if (PosProfile::where('van_code', $code)->where('id', '!=', $profile->id)->exists()) {
+            return back()->with('error', "Van ID {$code} is already used by another profile. Two vans must not share one.");
+        }
+        $profile->forceFill(['van_code' => $code])->save();
+
+        return back()->with('success', "Van ID for {$profile->name} is now {$code}. It applies to new documents only.");
     }
 
     /**

@@ -22,7 +22,7 @@ class Invoice extends Model
     public const CREDIT_TERM_DAYS = [7, 14, 30];
 
     protected $fillable = [
-        'invoice_no', 'customer_id', 'pos_profile_id', 'shift_id', 'user_id', 'status',
+        'invoice_no', 'van_code', 'customer_id', 'pos_profile_id', 'shift_id', 'user_id', 'status',
         'posting_datetime', 'posting_date', 'is_return', 'return_against_id',
         'total_qty', 'net_total', 'tax_total', 'discount_total', 'grand_total',
         'additional_discount_percentage', 'additional_discount_amount',
@@ -69,6 +69,11 @@ class Invoice extends Model
     public function posProfile()
     {
         return $this->belongsTo(PosProfile::class);
+    }
+
+    public function creditInvoice()
+    {
+        return $this->hasOne(CreditInvoice::class);
     }
 
     public function shift()

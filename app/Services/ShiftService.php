@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SyncProfileCatalog;
+use App\Models\Collection;
 use App\Models\Invoice;
 use App\Models\InvoicePayment;
 use App\Models\InvoiceTax;
@@ -143,6 +144,13 @@ class ShiftService
             ->groupBy('mode_of_payment')
             ->pluck('total', 'mode_of_payment')
             ->all();
+
+        // Credit collections taken during this shift are cash in the drawer too.
+        foreach (Collection::where('shift_id', $shift->id)
+            ->selectRaw('mode_of_payment, SUM(amount) as total')
+            ->groupBy('mode_of_payment')->pluck('total', 'mode_of_payment') as $mode => $total) {
+            $collected[$mode] = (float) ($collected[$mode] ?? 0) + (float) $total;
+        }
 
         $movements = PosCashMovement::where('shift_id', $shift->id)
             ->selectRaw("mode_of_payment,

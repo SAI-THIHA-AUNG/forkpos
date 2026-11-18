@@ -8,14 +8,14 @@ use Illuminate\Console\Command;
 class SyncMastersCommand extends Command
 {
     protected $signature = 'pos:sync-masters
-                            {--entities= : Comma-separated list (uom,item_group,warehouse,customer_group,territory,tax,item,item_price,customer,stock)}
+                            {--entities= : Comma-separated list (uom,item_group,warehouse,customer_group,territory,tax,item,item_price,customer,naming_series,credit_invoice,stock)}
                             {--limit=500 : Max records per entity}';
 
     protected $description = 'Pull master data (items, prices, customers, taxes, stock...) from a real ERPNext into the local database';
 
     public function handle(SyncService $sync): int
     {
-        $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
+        $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'naming_series', 'credit_invoice', 'stock'];
         $entities = $this->option('entities')
             ? array_values(array_intersect(explode(',', (string) $this->option('entities')), $valid))
             : $valid;

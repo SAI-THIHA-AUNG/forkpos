@@ -89,6 +89,10 @@
             <input id="coupon" type="text" placeholder="Coupon code (optional)" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm">
             <input id="customer-search" type="search" placeholder="Customer (defaults to Walk-in)" class="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" value="Walk-in Customer" data-customer-id="">
             <div id="customer-results" class="hidden bg-white border border-slate-200 rounded mt-1 max-h-40 overflow-y-auto text-sm"></div>
+            {{-- Credit alert: informs, never blocks the sale. --}}
+            <button type="button" id="credit-chip" class="hidden w-full text-left rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 text-xs text-amber-800 flex items-center justify-between gap-2">
+                <span>💳 <span id="credit-chip-text"></span></span><span class="underline shrink-0">View</span>
+            </button>
         </div>
 
         <div class="border-t border-slate-100 px-4 py-3">
@@ -129,6 +133,23 @@
 @endsection
 
 @section('scripts')
+
+{{-- Credit drawer: unpaid invoices of the selected customer (list → detail → collect). Slides over, cart stays put. --}}
+<div id="credit-drawer" class="hidden fixed inset-0 z-50 no-print">
+    <div id="credit-backdrop" class="absolute inset-0 bg-black/30"></div>
+    <aside class="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl flex flex-col">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <div>
+                <p class="text-xs text-slate-500">Unpaid credit invoices</p>
+                <h3 id="credit-title" class="font-semibold text-slate-800"></h3>
+            </div>
+            <button type="button" id="credit-close" class="w-8 h-8 rounded hover:bg-slate-100 text-slate-500">✕</button>
+        </div>
+        <div id="credit-body" class="flex-1 overflow-y-auto p-4 text-sm"></div>
+    </aside>
+</div>
+@include('pos.credit._collect_modal')
+
 <script>
 const CURRENCY = @json($currency);
 const PRECISION = {{ $precision }};
@@ -611,7 +632,7 @@ let csTimer;
 cs.addEventListener('input', () => {
     clearTimeout(csTimer);
     const q = cs.value.trim();
-    if (!q || q === 'Walk-in Customer') { cs.dataset.customerId = ''; csResults.classList.add('hidden'); return; }
+    if (!q || q === 'Walk-in Customer') { cs.dataset.customerId = ''; csResults.classList.add('hidden'); loadCredit(null); return; }
     csTimer = setTimeout(() => {
         fetch(`{{ route('customers.index') }}?q=${encodeURIComponent(q)}`, { headers: { 'Accept': 'application/json' } })
             .then(r => r.json()).then(res => {
@@ -623,6 +644,7 @@ cs.addEventListener('input', () => {
                     cs.dataset.customerId = b.dataset.id;
                     cs.value = b.dataset.name;
                     csResults.classList.add('hidden');
+                    loadCredit(b.dataset.id, b.dataset.name);
                 }));
             });
     }, 250);
@@ -693,17 +715,92 @@ document.getElementById('save-draft').addEventListener('click', () => {
     }).catch(err => flash('Network error: ' + err.message, 'error'));
 });
 
+// ---- Credit alert + drawer ---------------------------------------------
+const creditChip = document.getElementById('credit-chip');
+const drawer = document.getElementById('credit-drawer');
+const drawerBody = document.getElementById('credit-body');
+let creditCustomer = null, creditName = '', creditSeq = 0;
+const money = n => CURRENCY + Number(n).toFixed(PRECISION);
+
+// Fire-and-forget: a slow or failed lookup must never get in the way of the sale.
+function loadCredit(id, name) {
+    creditCustomer = id || null; creditName = name || cs.value;
+    const seq = ++creditSeq;
+    creditChip.classList.add('hidden');
+    if (!id) return;
+    fetch(`/credit/customer/${id}`, { headers: { 'Accept': 'application/json' } })
+        .then(r => r.ok ? r.json() : null)
+        .then(res => {
+            if (!res || seq !== creditSeq) return; // customer changed meanwhile
+            const d = res.data;
+            if (!d || !d.count) return;
+            document.getElementById('credit-chip-text').textContent =
+                `${d.count} unpaid invoice${d.count > 1 ? 's' : ''} · ${money(d.total)}` + (d.overdue ? ` · ${d.overdue} overdue` : '');
+            creditChip.classList.remove('hidden');
+            creditChip.dataset.json = JSON.stringify(d);
+        }).catch(() => {});
+}
+function openDrawer() { drawer.classList.remove('hidden'); }
+function closeDrawer() { drawer.classList.add('hidden'); }
+document.getElementById('credit-close').addEventListener('click', closeDrawer);
+document.getElementById('credit-backdrop').addEventListener('click', closeDrawer);
+
+function showCreditList() {
+    document.getElementById('credit-title').textContent = creditName;
+    fetch(`/credit/customer/${creditCustomer}`, { headers: { 'Accept': 'application/json' } }).then(r => r.json()).then(res => {
+        const d = res.data;
+        if (!d.count) { drawerBody.innerHTML = '<p class="text-slate-500">No unpaid invoices. 🎉</p>'; return; }
+        drawerBody.innerHTML = `<p class="mb-3 text-slate-600">Total outstanding <b>${money(d.total)}</b></p>` + d.invoices.map(i => `
+            <div class="border border-slate-200 rounded-lg p-3 mb-2">
+                <button type="button" data-detail="${i.id}" class="w-full text-left">
+                    <div class="flex justify-between"><span class="font-mono text-xs text-brand-600">${esc(i.invoice_no)}</span><b class="text-amber-700">${money(i.outstanding)}</b></div>
+                    <div class="text-xs text-slate-500">${esc(i.posting_date)} · van ${esc(i.van_code || '—')} · total ${money(i.grand_total)}${i.overdue ? ' · <span class="text-red-600">overdue</span>' : ''}</div>
+                </button>
+                <div class="mt-2 text-right"><button type="button" data-quick="${i.id}" class="text-xs rounded-full bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1">💵 Quick collect</button></div>
+            </div>`).join('');
+        drawerBody.querySelectorAll('[data-detail]').forEach(b => b.addEventListener('click', () => showCreditDetail(b.dataset.detail)));
+        drawerBody.querySelectorAll('[data-quick]').forEach(b => b.addEventListener('click', () => {
+            const i = d.invoices.find(x => x.id == b.dataset.quick);
+            openCollect({ id: i.id, invoice_no: i.invoice_no, outstanding: i.outstanding, customer: creditName });
+        }));
+    });
+}
+function showCreditDetail(id) {
+    fetch(`/credit/${id}/detail`, { headers: { 'Accept': 'application/json' } }).then(r => r.json()).then(res => {
+        const d = res.data;
+        drawerBody.innerHTML = `
+            <button type="button" id="credit-back" class="text-xs text-slate-500 hover:underline mb-2">← All unpaid invoices</button>
+            <div class="flex justify-between items-start"><div><p class="font-mono text-sm">${esc(d.invoice_no)}</p>
+                <p class="text-xs text-slate-500">${esc(d.posting_date)} · van ${esc(d.van_code || '—')}${d.due_date ? ' · due ' + esc(d.due_date) : ''}</p></div>
+                <b class="text-amber-700">${money(d.outstanding)}</b></div>
+            <table class="w-full text-xs mt-3">${(d.items || []).map(l => `<tr class="border-b border-slate-100"><td class="py-1">${esc(l.item_name || l.item_code)}</td><td class="text-right">${l.qty} ${esc(l.uom || '')}</td><td class="text-right">${money(l.amount)}</td></tr>`).join('') || '<tr><td class="py-2 text-slate-400">Item lines not available yet.</td></tr>'}</table>
+            ${d.collections.length ? '<p class="text-xs font-semibold mt-3">Collections</p>' + d.collections.map(c => `<div class="text-xs flex justify-between"><span>${esc(c.collection_no)} · ${esc(c.mode)}</span><span>${money(c.amount)}</span></div>`).join('') : ''}
+            <div class="flex gap-2 mt-4">
+                <button type="button" id="credit-collect" class="flex-1 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold py-2">💵 Collect</button>
+                <a href="${d.url}" class="rounded-lg border border-slate-300 px-3 py-2 text-slate-600 hover:bg-slate-50">Open page</a>
+            </div>`;
+        document.getElementById('credit-back').addEventListener('click', showCreditList);
+        document.getElementById('credit-collect').addEventListener('click', () =>
+            openCollect({ id: d.id, invoice_no: d.invoice_no, outstanding: d.outstanding, customer: d.customer }));
+    });
+}
+creditChip.addEventListener('click', () => { openDrawer(); showCreditList(); });
+// After a collection from the drawer, refresh the chip and the list (cart untouched).
+window.onCollected = data => {
+    flash(data.message || 'Collected.');
+    loadCredit(creditCustomer, creditName);
+    if (!drawer.classList.contains('hidden')) showCreditList();
+};
+
 // ---- Checkout ----------------------------------------------------------
 document.getElementById('checkout').addEventListener('click', () => {
     if (!cart.length) return;
     const grand = GRAND;
     const paid = payments.reduce((s, p) => s + (p.amount || 0), 0);
-    if (credit.on) {
-        if (!cs.dataset.customerId) { flash('Choose a customer for a credit sale.', 'error'); return; }
-        if (!creditDueDate()) { flash('Pick the payment terms: 7, 14, 30 days or a date.', 'error'); return; }
-        if (paid >= grand - 0.01) { flash('Payments already cover the total — untick Credit sale.', 'error'); return; }
-    } else if (paid < grand - 0.01) {
-        if (!confirm('Payment is short of total. Submit as unpaid invoice?')) return;
+    if (paid < grand - 0.01) {
+        const owed = grand - paid;
+        if (!cs.dataset.customerId) { flash('Select a customer to sell on credit — walk-in sales must be paid in full.', 'error'); return; }
+        if (!confirm(`${cs.value} will owe ${CURRENCY}${owed.toFixed(PRECISION)} on credit. Continue?`)) return;
     }
     const payload = {
         customer_id: cs.dataset.customerId || null,

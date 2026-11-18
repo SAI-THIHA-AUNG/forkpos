@@ -40,6 +40,11 @@ class Customer extends Model
         return $this->hasMany(Invoice::class);
     }
 
+    public function creditInvoices()
+    {
+        return $this->hasMany(CreditInvoice::class);
+    }
+
     public function scopeSearch(Builder $query, ?string $term): Builder
     {
         if (! $term) {

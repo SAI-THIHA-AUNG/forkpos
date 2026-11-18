@@ -87,7 +87,7 @@ class SyncController extends Controller
     {
         abort_unless($request->user()->isManager(), 403, 'Only managers can run a master sync.');
 
-        $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
+        $valid = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'naming_series', 'credit_invoice', 'stock'];
         $data = $request->validate([
             'pos_profile_id' => ['nullable', 'integer', 'exists:pos_profiles,id'],
             'entities' => ['nullable', 'array'],
@@ -95,7 +95,7 @@ class SyncController extends Controller
             'limit' => ['nullable', 'integer', 'min:1', 'max:2000'],
         ]);
 
-        $entities = $data['entities'] ?? ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
+        $entities = $data['entities'] ?? ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'naming_series', 'credit_invoice', 'stock'];
 
         // Scope to the client's POS profile when it tells us which one it is
         // using, so the pull fetches only that profile's warehouse/price list.
@@ -128,6 +128,9 @@ class SyncController extends Controller
 
         try {
             $result = $this->sync->pushInvoices($data['invoice_ids'] ?? null);
+            if (empty($data['invoice_ids'])) {
+                $result['collections'] = $this->sync->pushCollections();
+            }
         } catch (\Throwable $e) {
             return response()->json([
                 'data' => ['message' => $e->getMessage()],

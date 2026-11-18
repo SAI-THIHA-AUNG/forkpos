@@ -13,6 +13,7 @@ class Setting extends Model
         'next_invoice_number', 'receipt_footer', 'receipt_header',
         'erpnext_url', 'erpnext_api_key', 'erpnext_api_secret',
         'erpnext_company', 'erpnext_price_list', 'erpnext_verified_at', 'last_synced_at',
+        'erpnext_naming_series', 'erpnext_series_options',
     ];
 
     protected function casts(): array
@@ -22,6 +23,7 @@ class Setting extends Model
             'allow_negative_stock' => 'boolean',
             'next_invoice_number' => 'integer',
             'erpnext_api_secret' => 'encrypted',
+            'erpnext_series_options' => 'array',
             'last_synced_at' => 'datetime',
             'erpnext_verified_at' => 'datetime',
         ];

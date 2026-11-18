@@ -62,6 +62,9 @@
             <a href="{{ route('invoices.index', ['type' => 'return']) }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('invoices.*') && request('type') === 'return' ? 'bg-slate-800 text-white' : '' }}" title="Returns">
                 <span class="w-5 text-center text-lg shrink-0">↩️</span><span class="nav-text text-sm">Returns</span>
             </a>
+            <a href="{{ route('credit.index') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('credit.*') ? 'bg-slate-800 text-white' : '' }}" title="Credit collect">
+                <span class="w-5 text-center text-lg shrink-0">💳</span><span class="nav-text text-sm">Credit</span>
+            </a>
             <a href="{{ route('customers.index') }}" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-slate-800 {{ request()->routeIs('customers.*') ? 'bg-slate-800 text-white' : '' }}" title="Customers">
                 <span class="w-5 text-center text-lg shrink-0">👤</span><span class="nav-text text-sm">Customers</span>
             </a>

@@ -131,6 +131,7 @@ class PosProfileSync
                 );
             }
 
+            $profile->ensureVanCode(); // van id for document numbers
             $this->importUsers($profile);
 
             // Reconcile the payment-methods child table:

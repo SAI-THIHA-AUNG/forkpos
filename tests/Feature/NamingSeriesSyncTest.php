@@ -132,7 +132,7 @@ class NamingSeriesSyncTest extends TestCase
     {
         $setting = Setting::current();
         $setting->forceFill([
-            'invoice_series' => 'ACC-SINV-.YYYY.-',
+            'erpnext_naming_series' => 'ACC-SINV-.YYYY.-',
             'invoice_prefix' => 'ACC-SINV-',
             'next_invoice_number' => 1,
         ])->save();
@@ -150,7 +150,8 @@ class NamingSeriesSyncTest extends TestCase
         ], $headers);
 
         $response->assertCreated();
-        $this->assertSame('ACC-SINV-2026-00001', $response->json('data.invoice_no'));
+        // The van id (from the "Main POS" profile) sits between the series prefix and the year.
+        $this->assertSame('ACC-SINV-MP-2026-00001', $response->json('data.invoice_no'));
     }
 
     public function test_settings_page_shows_series_and_does_not_let_prefix_be_edited(): void

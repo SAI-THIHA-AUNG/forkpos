@@ -14,6 +14,11 @@ layer, backed by SQLite (or MySQL). No Frappe framework.
 - **Credit sales** (7 / 14 / 30-day terms or a due date, down payments, overdue
   tracking), **returns** priced from the original sale, **saved drafts**, and
   audited **sale cancellation** with stock restore.
+- **Credit collect** — unpaid credit invoices from *every* van, with a register
+  credit-alert drawer and a dedicated collect screen; payments push back to
+  ERPNext as Payment Entries (idempotent, rejected collections can be discarded).
+- **Van-aware numbering** — invoice/collection numbers carry a per-profile van ID
+  (`ACC-SINV-TVP-2026-00001`), so two vans never mint the same number.
 - **Shifts** with per-payment balances and expected-vs-counted reconciliation.
 - **Catalog, customers, coupons, loyalty, stock ledger**, and a daily report with
   Excel export.
@@ -71,7 +76,7 @@ See `app/Http/Controllers/Api/V1` for the full surface.
 ## Development
 
 ```bash
-php artisan test          # PHPUnit feature tests (in-memory SQLite) — 97 tests / 508 assertions
+php artisan test          # PHPUnit feature tests (in-memory SQLite) — 107 tests / 569 assertions
 vendor/bin/pint --dirty   # code style
 ```
 

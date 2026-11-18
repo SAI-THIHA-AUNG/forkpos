@@ -21,7 +21,7 @@ class ProfileCatalogSync
     /** Entities the register cannot work without. */
     public const REQUIRED = ['item', 'item_price', 'stock'];
 
-    public const STEPS = ['warehouse', 'tax', 'item', 'item_price', 'stock', 'customer'];
+    public const STEPS = ['warehouse', 'tax', 'item', 'item_price', 'stock', 'customer', 'naming_series', 'credit_invoice'];
 
     public function __construct(protected SyncService $sync) {}
 

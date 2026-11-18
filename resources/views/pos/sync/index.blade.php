@@ -25,6 +25,21 @@
         </div>
     </div>
 
+    <div class="grid grid-cols-3 gap-3 mb-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs text-slate-500 uppercase tracking-wide">Open credit invoices (all vans)</p>
+            <p class="text-2xl font-bold text-slate-800 mt-1">{{ $openCredit }}</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs text-slate-500 uppercase tracking-wide">Collections waiting to push</p>
+            <p class="text-2xl font-bold text-amber-600 mt-1">{{ $collectionsPending }}</p>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <p class="text-xs text-slate-500 uppercase tracking-wide">Collections rejected</p>
+            <p class="text-2xl font-bold text-red-600 mt-1">{{ $collectionsFailed }}</p>
+        </div>
+    </div>
+
     @if ($ping)
     <p class="text-xs text-slate-500 mb-4">ERPNext ping: <code>{{ $ping }}</code></p>
     @endif

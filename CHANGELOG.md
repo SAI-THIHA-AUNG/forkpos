@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [0.7.0] — 2026-11-18
+
+Credit collection across vans, and van-aware document numbering.
+
+### Added
+- **Credit collect**: `credit_invoices` (unpaid Sales Invoices from *any* van,
+  filled by ERPNext pull and this van's own credit sales) and `collections`
+  (money taken against them), plus `CreditService`, `CreditController`,
+  `/credit` pages and a register credit-alert chip + slide-over (list → detail →
+  collect).
+- **Van-aware numbering**: `van_code` on POS profiles and invoices + the
+  `DocNaming` helper. Invoice numbers are `{ERPNext series}{VAN}-[CR-]{YYYY}-#####`
+  (e.g. `ACC-SINV-TVP-2026-00001`) and collections are `COL-{VAN}-{YYYY}-#####`,
+  so two vans can never collide. The van ID is editable in Settings.
+- **ERPNext sync**: `naming_series` and `credit_invoice` pull entities, and
+  collections push back as submitted Payment Entries (idempotent; ERPNext rejects
+  a double collection → marked failed → can be discarded).
+
+### Changed
+- A short payment now becomes a credit sale automatically (register requires a
+  named customer and confirms the owed amount); the balance is tracked in
+  `credit_invoices` and respects the customer's `credit_limit`.
+- Cancelling a sale with collections recorded against it is refused.
+
 ## [0.6.0] — 2026-11-17
 
 Saved register drafts and a guarded, audited sale-cancellation workflow.

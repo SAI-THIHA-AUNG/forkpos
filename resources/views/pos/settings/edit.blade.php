@@ -196,7 +196,7 @@
                 <h2 class="font-semibold text-slate-700">ERPNext POS Profiles</h2>
                 <p class="text-xs text-slate-500 mt-0.5">
                     Pulled from ERPNext. ERPNext is the source of truth for currency, warehouse
-                    &amp; payment methods &mdash; local edits of synced profiles are blocked.
+                    &amp; payment methods &mdash; local edits of synced profiles are blocked. The <b>Van ID</b> is ForkPOS-only: it goes into every invoice and collection number (e.g. ACC-SINV-<b>TVP</b>-2026-00001) so two vans never collide.
                 </p>
             </div>
             @if ($setting->erpnextEnabled())
@@ -216,6 +216,7 @@
                     <th class="text-left py-2">Profile</th><th class="text-left py-2">Currency</th>
                     <th class="text-left py-2">Price list</th><th class="text-left py-2">Warehouse</th>
                     <th class="text-left py-2">Payment methods</th>
+                    <th class="text-left py-2">Van ID</th>
                     <th class="text-right py-2">Synced</th>
                 </tr></thead>
                 <tbody>
@@ -226,6 +227,13 @@
                         <td class="py-2">{{ $p->selling_price_list ?: '—' }}</td>
                         <td class="py-2">{{ $p->warehouse?->name ?? 'not synced' }}</td>
                         <td class="py-2">{{ $p->payments->pluck('mode_of_payment')->join(', ') ?: '—' }}</td>
+                        <td class="py-2">
+                            <form method="POST" action="{{ route('settings.van-code', $p) }}" class="flex items-center gap-1">
+                                @csrf @method('PUT')
+                                <input name="van_code" value="{{ $p->van_code ?? $p->ensureVanCode() }}" maxlength="8" class="w-20 rounded border border-slate-300 px-2 py-1 text-xs font-mono uppercase" title="Used in invoice numbers, e.g. {{ \App\Support\DocNaming::number(\App\Support\DocNaming::seriesPrefix($setting->erpnext_naming_series) ?: 'INV-', $p->van_code ?? $p->ensureVanCode(), '', now()->year, 1) }}">
+                                <button class="text-xs text-brand-600 hover:underline">Save</button>
+                            </form>
+                        </td>
                         <td class="py-2 text-right text-xs text-slate-500">{{ $p->synced_at?->diffForHumans() ?? '—' }}</td>
                     </tr>
                     @endforeach

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Collection;
+use App\Models\CreditInvoice;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Invoice;
@@ -14,6 +16,7 @@ use App\Models\Tax;
 use App\Models\Territory;
 use App\Models\Uom;
 use App\Models\Warehouse;
+use App\Support\DocNaming;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -22,8 +25,9 @@ use RuntimeException;
  * invoices back up as ERPNext POS Invoices.
  *
  * Pull entities: uom, item_group, warehouse, item, item_price, customer,
- *                customer_group, territory, tax, stock
- * Push entities: invoice
+ *                customer_group, territory, tax, stock, naming_series,
+ *                credit_invoice (unpaid Sales Invoices of every van)
+ * Push entities: invoice, collection (as Payment Entries)
  */
 class SyncService
 {
@@ -44,7 +48,7 @@ class SyncService
         $this->client->ping(); // fail fast with a clear message when unreachable
 
         // Order matters: lookups before the entities referencing them.
-        $order = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'stock'];
+        $order = ['uom', 'item_group', 'warehouse', 'customer_group', 'territory', 'tax', 'item', 'item_price', 'customer', 'naming_series', 'credit_invoice', 'stock'];
         foreach ($order as $entity) {
             if (! in_array($entity, $entities, true)) {
                 continue;
@@ -324,6 +328,160 @@ class SyncService
         return ['pulled' => count($rows), 'upserted' => $count, 'max_modified' => $this->maxModified($rows)];
     }
 
+    /**
+     * Sales Invoice naming series known to ERPNext. Stored so the app can build
+     * local numbers (and van series) that follow ERPNext's own rule.
+     */
+    public function pullNamingSeries(int $limit = 500, ?SyncContext $ctx = null): array
+    {
+        $res = $this->client->call('frappe.desk.form.load.getdoctype', ['doctype' => 'Sales Invoice']);
+        $docs = $res['docs'] ?? ($res['message']['docs'] ?? []);
+
+        $options = [];
+        $default = null;
+        foreach ($docs as $doc) {
+            if (($doc['name'] ?? null) !== 'Sales Invoice') {
+                continue;
+            }
+            foreach ($doc['fields'] ?? [] as $field) {
+                if (($field['fieldname'] ?? null) === 'naming_series') {
+                    $options = array_values(array_filter(array_map('trim', explode("\n", (string) ($field['options'] ?? '')))));
+                    $default = $field['default'] ?? null;
+                }
+            }
+        }
+        if (! $options) {
+            return ['pulled' => 0, 'upserted' => 0, 'max_modified' => null];
+        }
+
+        $setting = Setting::current();
+        $chosen = $setting->erpnext_naming_series;
+        if (! $chosen || ! in_array($chosen, $options, true)) {
+            $chosen = ($default && in_array($default, $options, true)) ? $default : $options[0];
+        }
+        $setting->forceFill(['erpnext_naming_series' => $chosen, 'erpnext_series_options' => $options])->save();
+        Setting::flushCache();
+
+        return ['pulled' => count($options), 'upserted' => count($options), 'max_modified' => null];
+    }
+
+    /**
+     * Unpaid Sales Invoices from ERPNext — made by ANY van, not just this one —
+     * so a salesman can collect on an invoice another van created.
+     *
+     * Always a full pull of the (small) unpaid list instead of a delta: an invoice
+     * that was paid elsewhere simply drops out of the list, and that is the signal
+     * to close it here. Item lines are fetched only for new or changed invoices.
+     */
+    public function pullCreditInvoice(int $limit = 500, ?SyncContext $ctx = null): array
+    {
+        $fields = ['name', 'customer', 'customer_name', 'posting_date', 'due_date', 'currency', 'grand_total',
+            'outstanding_amount', 'pos_profile', 'modified'];
+        $filters = [['docstatus', '=', 1], ['is_return', '=', 0], ['outstanding_amount', '>', 0]];
+        if ($company = $this->client->company()) {
+            $filters[] = ['company', '=', $company];
+        }
+        $rows = $this->client->listAll('Sales Invoice', $fields, $filters, $limit, 'posting_date asc');
+        $names = array_column($rows, 'name');
+
+        $vanByProfile = PosProfile::whereNotNull('erpnext_id')->whereNotNull('van_code')->pluck('van_code', 'erpnext_id')->all();
+        $vanCodes = array_values(array_filter(PosProfile::pluck('van_code')->all()));
+        $existing = CreditInvoice::whereIn('erpnext_id', $names)->get()->keyBy('erpnext_id');
+        $localIds = Invoice::whereIn('erpnext_id', $names)->pluck('id', 'erpnext_id');
+
+        $count = 0;
+        foreach ($rows as $row) {
+            $name = $row['name'];
+            $credit = $existing->get($name);
+            if (! $credit && isset($localIds[$name])) {
+                // Our own invoice, pushed earlier: reuse its row instead of adding a twin.
+                $credit = CreditInvoice::where('invoice_id', $localIds[$name])->first();
+            }
+            $credit ??= new CreditInvoice(['origin' => 'erpnext']);
+
+            // Debtors of other vans may not be in this van's customer list yet: add them (never edit existing ones).
+            $customer = Customer::withTrashed()->where('erpnext_id', $row['customer'])->first()
+                ?? Customer::create([
+                    'erpnext_id' => $row['customer'],
+                    'customer_code' => mb_substr($row['customer'], 0, 32),
+                    'customer_name' => $row['customer_name'] ?: $row['customer'],
+                ]);
+            if ($customer->trashed()) {
+                $customer->restore();
+            }
+
+            $items = $credit->items;
+            if (! $credit->exists || $credit->erp_modified !== ($row['modified'] ?? null) || ! $items) {
+                try {
+                    $items = collect($this->client->doc('Sales Invoice', $name)['items'] ?? [])->map(fn ($l) => [
+                        'item_code' => $l['item_code'] ?? null,
+                        'item_name' => $l['item_name'] ?? ($l['item_code'] ?? null),
+                        'qty' => (float) ($l['qty'] ?? 0),
+                        'uom' => $l['uom'] ?? null,
+                        'rate' => (float) ($l['rate'] ?? 0),
+                        'amount' => (float) ($l['amount'] ?? 0),
+                    ])->values()->all();
+                } catch (\Throwable) {
+                    // keep whatever lines we already have; the balance is what matters
+                }
+            }
+
+            $outstanding = round((float) $row['outstanding_amount'], 6);
+            $grand = round((float) $row['grand_total'], 6);
+            $pending = $credit->exists ? $credit->pending_collected : 0.0;
+
+            $credit->fill([
+                'erpnext_id' => $name,
+                'customer_id' => $customer->id,
+                'invoice_no' => $name,
+                'van_code' => $vanByProfile[$row['pos_profile'] ?? ''] ?? $this->vanFromName($name, $vanCodes) ?? $credit->van_code,
+                'posting_date' => $row['posting_date'],
+                'due_date' => $row['due_date'] ?? null,
+                'currency' => $row['currency'] ?? null,
+                'grand_total' => $grand,
+                'paid_amount' => round($grand - $outstanding, 6),
+                'erp_outstanding' => $outstanding,
+                // Our own not-yet-pushed collections already cover it → stays settled locally.
+                'status' => ($outstanding - $pending) > 0.009 ? CreditInvoice::STATUS_OPEN : CreditInvoice::STATUS_SETTLED,
+                'items' => $items,
+                'erp_modified' => $row['modified'] ?? null,
+                'synced_at' => now(),
+            ]);
+            if (! $credit->invoice_id && isset($localIds[$name])) {
+                $credit->invoice_id = $localIds[$name];
+            }
+            $credit->save();
+            $count++;
+        }
+
+        // Anything we still think is open that ERPNext no longer lists was paid (or
+        // cancelled) elsewhere — e.g. another van collected it.
+        $listed = array_flip($names);
+        foreach (CreditInvoice::open()->whereNotNull('erpnext_id')->get() as $gone) {
+            if (isset($listed[$gone->erpnext_id])) {
+                continue;
+            }
+            $gone->update(['status' => CreditInvoice::STATUS_SETTLED, 'erp_outstanding' => 0, 'paid_amount' => $gone->grand_total, 'synced_at' => now()]);
+            if ($gone->invoice_id) {
+                Invoice::whereKey($gone->invoice_id)->update(['outstanding_amount' => 0, 'paid_amount' => $gone->grand_total, 'status' => Invoice::STATUS_PAID]);
+            }
+        }
+
+        return ['pulled' => count($rows), 'upserted' => $count, 'max_modified' => null];
+    }
+
+    /** ACC-SINV-TVP-2026-00001 → TVP, when one of our known van ids sits between dashes. */
+    protected function vanFromName(string $name, array $vanCodes): ?string
+    {
+        foreach ($vanCodes as $code) {
+            if (str_contains($name, '-'.$code.'-')) {
+                return $code;
+            }
+        }
+
+        return null;
+    }
+
     public function pullStock(int $limit, ?SyncContext $ctx = null): array
     {
         $warehouse = null;
@@ -400,6 +558,7 @@ class SyncService
             try {
                 $erpName = $this->pushInvoice($invoice);
                 $invoice->update(['erpnext_id' => $erpName, 'sync_status' => 'synced']);
+                CreditInvoice::where('invoice_id', $invoice->id)->update(['erpnext_id' => $erpName]);
                 $pushed++;
             } catch (\Throwable $e) {
                 $invoice->update(['sync_status' => 'failed']);
@@ -466,19 +625,22 @@ class SyncService
             'description' => $t->description,
         ], fn ($v) => $v !== null))->values()->all();
 
-        // A POS invoice needs at least one payment row; a sale fully on credit
-        // (nothing paid up front) goes over as a regular Sales Invoice instead.
-        $isPos = $payments !== [];
+        // A credit sale with nothing paid up front is a plain Sales Invoice with a
+        // due date; anything paid at the till goes as a POS invoice with payments.
+        $credit = CreditInvoice::where('invoice_id', $invoice->id)->first();
+        $onCredit = (float) $invoice->outstanding_amount > 0.009;
+        $series = $profile ? $this->vanSeriesFor($profile) : null;
 
         $payload = array_filter([
+            'naming_series' => $series,
             'customer' => $customer->erpnext_id,
             'company' => $company,
-            'pos_profile' => $isPos ? $posProfile : null,
-            'is_pos' => $isPos ? 1 : 0,
+            'pos_profile' => $posProfile,
+            'is_pos' => $payments ? 1 : 0,
+            'due_date' => $onCredit ? ($credit?->due_date ?? $invoice->posting_date->copy()->addDays((int) config('forkpos.credit_days', 30)))->toDateString() : null,
             'update_stock' => 1,
             'set_posting_time' => 1,
             'posting_date' => $invoice->posting_date->toDateString(),
-            'due_date' => $invoice->is_credit ? $invoice->due_date?->toDateString() : null,
             'currency' => $invoice->currency ?: ($profile?->currency ?? null),
             'selling_price_list' => $priceList,
             'items' => $items,
@@ -490,6 +652,7 @@ class SyncService
                 ? round((float) $invoice->additional_discount_amount, 6) : null,
             'remarks' => 'Synced from forkpos Laravel POS ('.$invoice->invoice_no.')',
         ], fn ($v) => $v !== null && $v !== '' && $v !== []);
+        $payload['is_pos'] = $payments ? 1 : 0; // 0 must survive the filter above
 
         $response = $this->client->create('Sales Invoice', $payload);
 
@@ -499,5 +662,174 @@ class SyncService
         }
 
         return $name;
+    }
+
+    /**
+     * ERPNext series for this van ("ACC-SINV-TVP-.YYYY.-"), or null to let ERPNext
+     * use its default series. The numbers ERPNext hands out then carry the van id
+     * too, so two vans can never end up with the same Sales Invoice name.
+     */
+    protected function vanSeriesFor(PosProfile $profile): ?string
+    {
+        $setting = Setting::current();
+        $base = (string) $setting->erpnext_naming_series;
+        if ($base === '') {
+            return null;
+        }
+        $series = DocNaming::vanSeries($base, $profile->ensureVanCode());
+        $options = (array) ($setting->erpnext_series_options ?? []);
+        if (in_array($series, $options, true)) {
+            return $series;
+        }
+
+        return config('forkpos.register_van_series', true) && $this->registerSeries($series, $options) ? $series : null;
+    }
+
+    /** Add a series to Sales Invoice's naming_series options (Property Setter). Best effort. */
+    protected function registerSeries(string $series, array $options): bool
+    {
+        try {
+            $merged = array_values(array_unique(array_merge($options, [$series])));
+            $value = implode("\n", $merged);
+            $found = $this->client->list('Property Setter', ['name'], [
+                ['doc_type', '=', 'Sales Invoice'], ['field_name', '=', 'naming_series'], ['property', '=', 'options'],
+            ], 1);
+            if ($found) {
+                $this->client->update('Property Setter', $found[0]['name'], ['value' => $value]);
+            } else {
+                $this->client->create('Property Setter', [
+                    'doctype_or_field' => 'DocField', 'doc_type' => 'Sales Invoice', 'field_name' => 'naming_series',
+                    'property' => 'options', 'property_type' => 'Text', 'value' => $value,
+                ]);
+            }
+            Setting::current()->forceFill(['erpnext_series_options' => $merged])->save();
+            Setting::flushCache();
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Push collections as submitted Payment Entries against the Sales Invoice.
+     * ERPNext is the referee: if another van already collected, it rejects the
+     * entry and the collection is marked failed (with the reason) for review.
+     *
+     * @param  array<int, int>|null  $ids  null = every pending/failed collection
+     * @return array{pushed: int, failed: int, errors: array<int, string>}
+     */
+    public function pushCollections(?array $ids = null): array
+    {
+        $query = Collection::whereIn('sync_status', [Collection::PENDING, Collection::FAILED])->with('creditInvoice')->orderBy('id');
+        if ($ids) {
+            $query->whereIn('id', $ids);
+        }
+
+        $pushed = 0;
+        $failed = 0;
+        $errors = [];
+        $credit = app(CreditService::class);
+        $accounts = [];
+
+        foreach ($query->get() as $collection) {
+            $invoice = $collection->creditInvoice;
+            if (! $invoice?->erpnext_id) {
+                // The invoice itself has not reached ERPNext yet: wait, not an error.
+                $errors[] = "{$collection->collection_no}: waiting for invoice {$invoice?->invoice_no} to sync first.";
+
+                continue;
+            }
+
+            try {
+                $entry = $this->findPaymentEntry($collection) ?? $this->createPaymentEntry($collection, $invoice, $accounts);
+                $credit->markPushed($collection, $entry);
+                $pushed++;
+            } catch (\Throwable $e) {
+                $collection->update(['sync_status' => Collection::FAILED, 'sync_error' => mb_substr($e->getMessage(), 0, 500)]);
+                $errors[] = "{$collection->collection_no}: ".$e->getMessage();
+                $failed++;
+            }
+        }
+
+        return ['pushed' => $pushed, 'failed' => $failed, 'errors' => $errors];
+    }
+
+    /** A retry after a lost response must not pay twice: look for our reference first. */
+    protected function findPaymentEntry(Collection $collection): ?string
+    {
+        $rows = $this->client->list('Payment Entry', ['name'], [
+            ['reference_no', '=', $collection->collection_no], ['docstatus', '!=', 2],
+        ], 1);
+
+        return $rows[0]['name'] ?? null;
+    }
+
+    protected function createPaymentEntry(Collection $collection, CreditInvoice $invoice, array &$accounts): string
+    {
+        $res = $this->client->call('erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry', [
+            'dt' => 'Sales Invoice',
+            'dn' => $invoice->erpnext_id,
+            'party_amount' => (float) $collection->amount,
+        ]);
+        $pe = $res['message'] ?? null;
+        if (! is_array($pe) || ! $pe) {
+            throw new RuntimeException('ERPNext could not build a Payment Entry for '.$invoice->erpnext_id.'.');
+        }
+
+        $amount = round((float) $collection->amount, 6);
+        $date = $collection->posting_date->toDateString();
+        $pe['posting_date'] = $date;
+        $pe['mode_of_payment'] = $collection->mode_of_payment;
+        $pe['reference_no'] = $collection->collection_no;
+        $pe['reference_date'] = $date;
+        $pe['paid_amount'] = $amount;
+        $pe['received_amount'] = $amount;
+        $pe['remarks'] = trim('Collected by forkpos '.$collection->collection_no.($collection->van_code ? ' (van '.$collection->van_code.')' : '').' '.$collection->remarks);
+        if (! empty($pe['references'][0])) {
+            $pe['references'][0]['allocated_amount'] = $amount;
+        }
+
+        // Pay into the account of the chosen mode of payment (cash vs bank, ...).
+        $key = ($pe['company'] ?? '').'|'.$collection->mode_of_payment;
+        if (! array_key_exists($key, $accounts)) {
+            $accounts[$key] = $this->modeAccount($collection->mode_of_payment, $pe['company'] ?? null);
+        }
+        if ($accounts[$key]) {
+            $pe['paid_to'] = $accounts[$key]['account'];
+            $pe['paid_to_account_currency'] = $accounts[$key]['currency'];
+        }
+        $pe['docstatus'] = 1;
+        unset($pe['name'], $pe['__islocal'], $pe['__unsaved']);
+
+        $created = $this->client->create('Payment Entry', $pe);
+        $data = $created['data'] ?? [];
+        $name = $data['name'] ?? null;
+        if (! $name) {
+            throw new RuntimeException('ERPNext did not return a Payment Entry name.');
+        }
+        if ((int) ($data['docstatus'] ?? 0) !== 1) {
+            $this->client->call('frappe.client.submit', ['doc' => $data], true);
+        }
+
+        return $name;
+    }
+
+    /** @return array{account: string, currency: ?string}|null */
+    protected function modeAccount(string $mode, ?string $company): ?array
+    {
+        try {
+            $doc = $this->client->doc('Mode of Payment', $mode);
+            foreach ($doc['accounts'] ?? [] as $row) {
+                if (($row['company'] ?? null) === $company && ! empty($row['default_account'])) {
+                    $acct = $this->client->doc('Account', $row['default_account']);
+
+                    return ['account' => $row['default_account'], 'currency' => $acct['account_currency'] ?? null];
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return null;
     }
 }
