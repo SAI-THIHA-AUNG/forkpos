@@ -256,7 +256,10 @@ class CreditService
             ->update([
                 'outstanding_amount' => $left,
                 'paid_amount' => round((float) $credit->grand_total - $left, 6),
-                'status' => $left <= 0.009 ? Invoice::STATUS_PAID : Invoice::STATUS_PARTLY_PAID,
+                // Nothing paid at all (e.g. after a rejected collection was discarded) is "unpaid", not "partly paid".
+                'status' => $left <= 0.009
+                    ? Invoice::STATUS_PAID
+                    : ($left >= (float) $credit->grand_total - 0.009 ? Invoice::STATUS_UNPAID : Invoice::STATUS_PARTLY_PAID),
             ]);
     }
 

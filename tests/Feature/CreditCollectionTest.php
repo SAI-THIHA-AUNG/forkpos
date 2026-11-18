@@ -554,4 +554,19 @@ class CreditCollectionTest extends TestCase
         $this->assertEqualsWithDelta(2.0, $invoice->paid_amount, 0.005);
         $this->assertEqualsWithDelta(2.8, $invoice->outstanding_amount, 0.005);
     }
+
+    public function test_discarding_the_only_collection_puts_the_invoice_back_to_unpaid(): void
+    {
+        $this->creditSale(0.0)->assertCreated();
+        $this->assertSame(Invoice::STATUS_UNPAID, Invoice::firstOrFail()->status);
+
+        $this->web()->postJson("/credit/{$this->credit()->id}/collect", ['amount' => 1, 'mode_of_payment' => 'Cash'])->assertCreated();
+        $this->assertSame(Invoice::STATUS_PARTLY_PAID, Invoice::firstOrFail()->status);
+
+        app(CreditService::class)->discard(Collection::firstOrFail());
+
+        $invoice = Invoice::firstOrFail();
+        $this->assertSame(Invoice::STATUS_UNPAID, $invoice->status);
+        $this->assertEqualsWithDelta(4.80, (float) $invoice->outstanding_amount, 0.005);
+    }
 }
