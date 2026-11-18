@@ -31,6 +31,8 @@
     const form = document.getElementById('collect-form');
     const err = document.getElementById('collect-error');
     let current = null, key = null;
+    // 15.00 -> "15": the balance is shown the same way as everywhere else in the app.
+    const plain = n => String(Number((Number(n) || 0).toFixed(2)));
     const uuid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
         : 'c-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 
@@ -38,10 +40,10 @@
         current = inv; key = uuid(); // one key per dialog → a double click can't collect twice
         document.getElementById('collect-inv').textContent = inv.invoice_no;
         document.getElementById('collect-cust').textContent = inv.customer || '';
-        document.getElementById('collect-out').textContent = Number(inv.outstanding).toFixed(2);
+        document.getElementById('collect-out').textContent = plain(inv.outstanding);
         const amt = document.getElementById('collect-amount');
-        amt.value = Number(inv.outstanding).toFixed(2);
-        amt.max = Number(inv.outstanding).toFixed(2);
+        amt.value = plain(inv.outstanding);
+        amt.max = plain(inv.outstanding);
         document.getElementById('collect-ref').value = '';
         err.classList.add('hidden');
         modal.classList.remove('hidden');

@@ -46,7 +46,11 @@ Sign in with `admin@forkpos.local` / `admin12345` (override via
 set a new password → connect ERPNext → choose POS profiles.
 
 Optional demo data: `php artisan db:seed --class=DemoSeeder`
-(`admin@pos.test` / `password`).
+(`admin@pos.test` / `password`, cashier `cashier@pos.test` / `password`).
+It adds 32 items with stock, 11 customers, a `Main POS` profile (van `MP`) and
+three open credit invoices from vans `V1` / `V2` / `MP` — one overdue and one
+part-paid — so the Credit collect page and the register's credit alert have
+something to show. `Kyaw Min` and `Su Su Hlaing` carry a credit limit.
 
 In production a single cron line drains the queue:
 
@@ -76,7 +80,7 @@ See `app/Http/Controllers/Api/V1` for the full surface.
 ## Development
 
 ```bash
-php artisan test          # PHPUnit feature tests (in-memory SQLite) — 107 tests / 569 assertions
+php artisan test          # PHPUnit feature tests (in-memory SQLite) — 108 tests / 580 assertions
 vendor/bin/pint --dirty   # code style
 ```
 

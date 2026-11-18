@@ -82,7 +82,9 @@ class PosFlowTest extends TestCase
         $this->assertEqualsWithDelta(1.81, $inv['coupon_discount'], 0.005);
         $this->assertEqualsWithDelta(17.19, $inv['grand_total'], 0.005);
         $this->assertEqualsWithDelta(2.81, $inv['change_amount'], 0.01);
-        $this->assertStringStartsWith('POS-', $inv['invoice_no']);
+        // Demo settings carry ERPNext's Sales Invoice series, so the number is
+        // {series}{van}-{year}-##### (the same shape it has after a real sync).
+        $this->assertSame('ACC-SINV-MP-'.now()->year.'-00001', $inv['invoice_no']);
 
         // stock deducted
         $this->assertEquals(95.0, $cola->fresh()->stockQty());

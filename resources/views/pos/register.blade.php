@@ -720,7 +720,7 @@ const creditChip = document.getElementById('credit-chip');
 const drawer = document.getElementById('credit-drawer');
 const drawerBody = document.getElementById('credit-body');
 let creditCustomer = null, creditName = '', creditSeq = 0;
-const money = n => CURRENCY + Number(n).toFixed(PRECISION);
+const money = n => CURRENCY + fmtAmount(n);
 
 // Fire-and-forget: a slow or failed lookup must never get in the way of the sale.
 function loadCredit(id, name) {
@@ -800,7 +800,7 @@ document.getElementById('checkout').addEventListener('click', () => {
     if (paid < grand - 0.01) {
         const owed = grand - paid;
         if (!cs.dataset.customerId) { flash('Select a customer to sell on credit — walk-in sales must be paid in full.', 'error'); return; }
-        if (!confirm(`${cs.value} will owe ${CURRENCY}${owed.toFixed(PRECISION)} on credit. Continue?`)) return;
+        if (!confirm(`${cs.value} will owe ${CURRENCY}${fmtAmount(owed)} on credit. Continue?`)) return;
     }
     const payload = {
         customer_id: cs.dataset.customerId || null,

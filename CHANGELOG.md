@@ -15,6 +15,15 @@ Credit collection across vans, and van-aware document numbering.
 - `van_code` on POS profiles and invoices + the `DocNaming` helper.
 - `naming_series` and `credit_invoice` pull entities; collections pushed as
   submitted Payment Entries.
+- **Demo data**: `DemoSeeder` now ships the credit setup — a `Main POS` profile
+  with van `MP`, ERPNext-style numbering settings (`ACC-SINV-`), two customers
+  with a credit limit, and three open credit invoices from vans `V1` / `V2` / `MP`
+  (one overdue, one part-paid) so the Credit page and the register alert can be
+  tried without an ERPNext connection.
+
+### Changed
+- The credit screens (list, detail, collect dialog, invoice page) use the same
+  trailing-zero trimming as the rest of the app: `15`, not `15.00`.
 
 ### How it works
 

@@ -72,7 +72,9 @@ class CreditCollectionTest extends TestCase
 
     protected function credit(): CreditInvoice
     {
-        return CreditInvoice::firstOrFail();
+        // The demo seed now ships credit invoices for its own customers; this
+        // helper must only ever return the invoice the test just created.
+        return CreditInvoice::where('customer_id', $this->customer->id)->firstOrFail();
     }
 
     public function test_credit_sale_is_tracked_and_numbered_with_the_van_id(): void
@@ -132,6 +134,28 @@ class CreditCollectionTest extends TestCase
         $res = $this->web()->getJson("/credit/customer/{$this->customer->id}")->assertOk();
         $this->assertSame(1, $res->json('data.count'));
         $this->assertEqualsWithDelta(2.80, $res->json('data.total'), 0.005);
+    }
+
+    public function test_demo_seed_ships_credit_invoices_for_the_collect_screens(): void
+    {
+        // DemoSeeder runs in setUp: three open invoices (V1 overdue, V2 due soon, MP part-paid).
+        $samples = CreditInvoice::open()->whereNull('invoice_id')->get();
+        $this->assertGreaterThanOrEqual(3, $samples->count());
+
+        $overdue = $samples->first(fn (CreditInvoice $c) => $c->isOverdue());
+        $this->assertNotNull($overdue, 'the demo seed ships an overdue invoice so the flag can be seen');
+        $this->assertSame('V1', $overdue->van_code);
+        $this->assertNotNull($samples->firstWhere('van_code', 'V2'));
+
+        $this->web()->get('/credit')->assertOk()
+            ->assertSee($overdue->invoice_no)
+            ->assertSee('Su Su Hlaing');
+
+        // Register alert: the demo customer's balance is reported, not blocked.
+        $customer = Customer::where('customer_name', 'Su Su Hlaing')->firstOrFail();
+        $this->web()->getJson("/credit/customer/{$customer->id}")
+            ->assertJsonPath('data.count', 1)
+            ->assertJsonPath('data.overdue', 0);
     }
 
     protected function fakeErp(array $unpaid, array $extra = []): void

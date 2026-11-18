@@ -19,7 +19,7 @@
             @if ($cr && $cr->status === 'open' && $cr->outstanding > 0.009)
             @php($collect = ['id' => $cr->id, 'invoice_no' => $invoice->invoice_no, 'outstanding' => $cr->outstanding, 'customer' => $invoice->customer?->customer_name])
             <button type="button" class="rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-2"
-                onclick='openCollect(@json($collect))'>💵 Collect ({{ number_format($cr->outstanding, 2) }})</button>
+                onclick='openCollect(@json($collect))'>💵 Collect ({{ \App\Support\Money::format($cr->outstanding) }})</button>
             <a href="{{ route('credit.show', $cr) }}" class="rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-medium px-3 py-2">Credit detail</a>
             @endif
             <a href="{{ route('pos.receipt', $invoice) }}" class="rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-medium px-3 py-2">Receipt</a>

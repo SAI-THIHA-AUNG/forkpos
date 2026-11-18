@@ -20,7 +20,7 @@
         <p class="text-red-600 text-xs mb-2">Usually another van already collected the invoice. Check, then discard to free the balance.</p>
         @foreach ($failed as $f)
         <div class="flex items-center justify-between gap-3 py-1 border-t border-red-100">
-            <span><span class="font-mono text-xs">{{ $f->collection_no }}</span> · {{ $f->customer?->customer_name }} · {{ number_format($f->amount, 2) }} on {{ $f->creditInvoice?->invoice_no }}<br><span class="text-xs text-red-500">{{ $f->sync_error }}</span></span>
+            <span><span class="font-mono text-xs">{{ $f->collection_no }}</span> · {{ $f->customer?->customer_name }} · {{ \App\Support\Money::format($f->amount) }} on {{ $f->creditInvoice?->invoice_no }}<br><span class="text-xs text-red-500">{{ $f->sync_error }}</span></span>
             <form method="POST" action="{{ route('credit.discard', $f) }}" onsubmit="return confirm('Discard this collection?')">@csrf<button class="text-xs text-red-700 underline">Discard</button></form>
         </div>
         @endforeach
@@ -49,8 +49,8 @@
                     <td class="px-4 py-2 text-center text-xs text-slate-500">{{ $c->van_code ?? '—' }}</td>
                     <td class="px-4 py-2 text-slate-500">{{ $c->posting_date?->format('M j') }}</td>
                     <td class="px-4 py-2 {{ $c->isOverdue() ? 'text-red-600 font-medium' : 'text-slate-500' }}">{{ $c->due_date?->format('M j') ?? '—' }}@if($c->isOverdue()) <span class="text-[10px] uppercase">overdue</span>@endif</td>
-                    <td class="px-4 py-2 text-right">{{ number_format($c->grand_total, 2) }}</td>
-                    <td class="px-4 py-2 text-right font-semibold text-amber-700">{{ number_format($c->outstanding, 2) }}</td>
+                    <td class="px-4 py-2 text-right">{{ \App\Support\Money::format($c->grand_total) }}</td>
+                    <td class="px-4 py-2 text-right font-semibold text-amber-700">{{ \App\Support\Money::format($c->outstanding) }}</td>
                     <td class="px-4 py-2 text-right whitespace-nowrap">
                         @php($collect = ['id' => $c->id, 'invoice_no' => $c->invoice_no, 'outstanding' => $c->outstanding, 'customer' => $c->customer?->customer_name])
                         <button type="button" title="Quick collect" class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100 hover:bg-green-200 text-green-700"
@@ -63,7 +63,7 @@
                 @endforelse
             </tbody>
             @if ($invoices->isNotEmpty())
-            <tfoot><tr class="bg-slate-50 font-semibold"><td colspan="6" class="px-4 py-2 text-right">Total outstanding</td><td class="px-4 py-2 text-right text-amber-700">{{ number_format($total, 2) }}</td><td></td></tr></tfoot>
+            <tfoot><tr class="bg-slate-50 font-semibold"><td colspan="6" class="px-4 py-2 text-right">Total outstanding</td><td class="px-4 py-2 text-right text-amber-700">{{ \App\Support\Money::format($total) }}</td><td></td></tr></tfoot>
             @endif
         </table>
     </div>
