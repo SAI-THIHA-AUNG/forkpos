@@ -63,9 +63,9 @@ class PosController extends Controller
 
         // Bootstrap the catalog with the first 60 items so the page renders
         // useful content without a follow-up fetch. The JS layer can paginate
-        // or search via /pos/items for larger catalogs.
-        $items = Item::with(['group', 'stockUom', 'salesUom', 'barcodes', 'prices'])
-            ->available()
+        // or search via /pos/items for larger catalogs. Profiles with ERPNext's
+        // "Hide Unavailable Items" checked stop selling items with no stock.
+        $items = $this->stock->hideUnavailable(Item::with(['group', 'stockUom', 'salesUom', 'barcodes', 'prices'])->available(), $profile)
             ->orderBy('item_name')
             ->limit(60)
             ->get();
@@ -115,8 +115,7 @@ class PosController extends Controller
     {
         $payload = $draft->payload;
         $saved = collect($payload['items'] ?? []);
-        $items = Item::with(['group', 'stockUom', 'salesUom'])
-            ->available()
+        $items = $this->stock->hideUnavailable(Item::with(['group', 'stockUom', 'salesUom'])->available(), $profile)
             ->whereIn('id', $saved->pluck('item_id'))
             ->get()
             ->keyBy('id');
@@ -195,7 +194,7 @@ class PosController extends Controller
         $pageLength = min((int) $request->query('limit_page_length', 60), 500);
         $offset = max(0, (int) $request->query('limit_start', 0));
 
-        $query = Item::with(['group', 'stockUom', 'salesUom', 'barcodes', 'prices'])->available();
+        $query = $this->stock->hideUnavailable(Item::with(['group', 'stockUom', 'salesUom', 'barcodes', 'prices'])->available(), $profile);
         if ($q = $request->query('q')) {
             $query->search($q);
         }

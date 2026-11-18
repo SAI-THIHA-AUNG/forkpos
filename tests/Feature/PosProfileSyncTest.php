@@ -229,4 +229,23 @@ class PosProfileSyncTest extends TestCase
         $this->assertCount(1, $result['errors']);
         $this->assertStringContainsString('Ghost POS', $result['errors'][0]);
     }
+
+    public function test_sync_one_carries_the_hide_unavailable_items_flag_for_the_register(): void
+    {
+        Warehouse::create(['name' => 'Stores - M', 'erpnext_id' => 'Stores - M', 'is_group' => false, 'is_default' => true]);
+
+        $doc = array_merge($this->vanPosDoc(), ['hide_unavailable_items' => 1]);
+
+        Http::fake([
+            'erp.example.test/api/method/ping' => Http::response(['message' => 'pong'], 200),
+            'erp.example.test/api/resource/POS%20Profile/Test%20Van%20POS' => Http::response([
+                'data' => $doc,
+            ], 200),
+        ]);
+
+        $profile = app(PosProfileSync::class)->syncOne('Test Van POS');
+
+        $this->assertTrue($profile->hideUnavailableItems(), 'the ERPNext flag reaches the register via the doc snapshot');
+        $this->assertSame(1, $profile->erpnext_data['hide_unavailable_items']);
+    }
 }

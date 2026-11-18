@@ -207,6 +207,17 @@ class PosProfile extends Model
         return $this->erpnextDoc()['taxes_and_charges'] ?? null ?: null;
     }
 
+    /**
+     * ERPNext POS Profile "Hide Unavailable Items": stock items with
+     * non-positive stock in the profile's warehouse are not displayed in the
+     * register. Read from the doc snapshot so an ERPNext toggle needs no
+     * migration; local-only profiles (no snapshot) never hide.
+     */
+    public function hideUnavailableItems(): bool
+    {
+        return (bool) ($this->erpnextDoc()['hide_unavailable_items'] ?? false);
+    }
+
     /** ERPNext default customer of this profile (e.g. "Walk-in Customer"), if any. */
     public function defaultCustomer(): ?string
     {

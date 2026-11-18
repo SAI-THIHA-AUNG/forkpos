@@ -131,7 +131,7 @@ feature (`/credit`); it has no API endpoints yet.
 ## Development
 
 ```bash
-php artisan test          # PHPUnit feature tests (in-memory SQLite) — 127 tests / 698 assertions
+php artisan test          # PHPUnit feature tests (in-memory SQLite) — 136 tests / 735 assertions
 vendor/bin/pint --dirty   # code style
 ```
 

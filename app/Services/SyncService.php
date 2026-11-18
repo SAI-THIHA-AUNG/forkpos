@@ -7,6 +7,7 @@ use App\Models\CreditInvoice;
 use App\Models\Customer;
 use App\Models\CustomerGroup;
 use App\Models\Invoice;
+use App\Models\InvoiceTax;
 use App\Models\Item;
 use App\Models\ItemGroup;
 use App\Models\ItemPrice;
@@ -194,12 +195,27 @@ class SyncService
                     break;
                 }
             }
+
+            // ERPNext requires an Account Head on every Sales Taxes and Charges
+            // row we push back. Prefer the rate row's account; when that is
+            // empty, fall back to the first row that carries one (templates can
+            // mix charge types and a rate row is occasionally built without it).
+            $accountHead = $firstRateRow['account_head'] ?? null;
+            if (! $accountHead) {
+                foreach ($doc['taxes'] ?? [] as $taxRow) {
+                    if (! empty($taxRow['account_head'])) {
+                        $accountHead = (string) $taxRow['account_head'];
+                        break;
+                    }
+                }
+            }
+
             Tax::updateOrCreate(['erpnext_id' => $row['name']], [
                 'name' => $doc['title'] ?? $row['name'],
                 'description' => $firstRateRow['description'] ?? ($firstRateRow['account_head'] ?? null),
                 'rate' => (float) ($firstRateRow['rate'] ?? 0),
                 'included_in_price' => (bool) ($firstRateRow['included_in_print_rate'] ?? false),
-                'account_name' => $firstRateRow['account_head'] ?? null,
+                'account_name' => $accountHead,
                 'is_default' => (bool) ($doc['is_default'] ?? false),
             ]);
             $count++;
@@ -698,13 +714,7 @@ class SyncService
             'amount' => (float) $p->amount,
         ])->values()->all();
 
-        $taxes = $invoice->taxes->map(fn ($t) => array_filter([
-            'charge_type' => 'On Net Total',
-            'account_head' => Tax::find($t->tax_id)?->account_name,
-            'rate' => $t->rate,
-            'included_in_print_rate' => $t->included_in_price,
-            'description' => $t->description,
-        ], fn ($v) => $v !== null))->values()->all();
+        $taxes = $invoice->taxes->map(fn (InvoiceTax $t) => $this->taxRowForPush($t))->values()->all();
 
         // A credit sale with nothing paid up front is a plain Sales Invoice with a
         // due date; anything paid at the till goes as a POS invoice with payments.
@@ -753,6 +763,55 @@ class SyncService
         $this->submitDoc('Sales Invoice', $data);
 
         return $name;
+    }
+
+    /**
+     * One Sales Taxes and Charges row for the invoice push.
+     *
+     * ERPNext rejects a taxes row without an Account Head ("Value missing for:
+     * Account Head", HTTP 417), so the account is resolved from the local Tax
+     * row and — when that predates the field or the template was edited
+     * upstream — healed once from the ERPNext template. A tax with no ERPNext
+     * link and no account never reaches ERPNext: the push fails with a clear
+     * reason instead of an opaque 417, and re-running the tax sync fixes it.
+     *
+     * @return array<string, mixed>
+     */
+    protected function taxRowForPush(InvoiceTax $invoiceTax): array
+    {
+        $tax = Tax::find($invoiceTax->tax_id);
+        $accountHead = $tax?->account_name;
+
+        if (! $accountHead && $tax?->erpnext_id) {
+            try {
+                $doc = $this->client->doc('Sales Taxes and Charges Template', $tax->erpnext_id);
+                foreach ($doc['taxes'] ?? [] as $row) {
+                    if (! empty($row['account_head'])) {
+                        $accountHead = (string) $row['account_head'];
+                        $tax->forceFill(['account_name' => $accountHead])->save();
+                        break;
+                    }
+                }
+            } catch (\Throwable) {
+                // Unreachable ERPNext or a deleted template: the plain error
+                // below is the answer, and the invoice stays retryable.
+            }
+        }
+
+        if (! $accountHead) {
+            throw new RuntimeException(
+                "Tax '{$invoiceTax->description}' has no Account Head. Re-run the tax sync "
+                .'(or set the account on its template in ERPNext) before pushing this invoice.'
+            );
+        }
+
+        return array_filter([
+            'charge_type' => 'On Net Total',
+            'account_head' => $accountHead,
+            'rate' => $invoiceTax->rate,
+            'included_in_print_rate' => $invoiceTax->included_in_price,
+            'description' => $invoiceTax->description,
+        ], fn ($v) => $v !== null);
     }
 
     /**

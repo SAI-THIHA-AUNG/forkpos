@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Models\Item;
+use App\Models\PosProfile;
 use App\Models\StockBalance;
 use App\Models\StockLedgerEntry;
 use App\Models\Warehouse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -88,6 +90,30 @@ class StockService
                 'posting_date' => now()->toDateString(),
             ]);
         }
+    }
+
+    /**
+     * Apply the profile's ERPNext "Hide Unavailable Items" policy to a
+     * register item query: stock items with non-positive stock in the
+     * profile's warehouse are not displayed. Non-stock items (services) are
+     * always sellable, and a profile without a warehouse cannot evaluate the
+     * policy, so the list stays untouched in both cases.
+     */
+    public function hideUnavailable(Builder $query, PosProfile $profile): Builder
+    {
+        if (! $profile->hideUnavailableItems() || ! $profile->warehouse_id) {
+            return $query;
+        }
+
+        $inStock = DB::table('stock_balances')
+            ->where('warehouse_id', $profile->warehouse_id)
+            ->where('qty', '>', 0)
+            ->pluck('item_id')
+            ->all();
+
+        return $query->where(function (Builder $scope) use ($inStock) {
+            $scope->where('is_stock_item', false)->orWhereIn('id', $inStock);
+        });
     }
 
     /**

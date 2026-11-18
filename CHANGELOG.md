@@ -4,6 +4,37 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [0.7.1] — 2026-11-19
+
+ERPNext POS Profile settings now reach the register, and tax pushes no longer
+bounce with "Value missing for: Account Head".
+
+### Fixed
+- **"Hide Unavailable Items" from the ERPNext POS Profile now applies to the
+  register.** The flag (`hide_unavailable_items`) was synced into the profile's
+  `erpnext_data` snapshot but never read, so the register listed out-of-stock
+  items. The register grid (`GET /pos`), the item search endpoint
+  (`GET /pos/items`), and a resumed draft all hide stock items with non-positive
+  stock in the profile's warehouse; non-stock items (services) stay visible, and
+  barcode scanning still returns the item so the cashier sees the "out" badge —
+  matching ERPNext's own behaviour.
+- **Invoice push no longer fails with HTTP 417 "Sales Taxes and Charges Row #1:
+  Value missing for: Account Head".** The tax sync now captures the Account Head
+  from the rate row (falling back to any row that carries one when the rate row
+  was built without it), and the push resolves the Account Head from the local
+  `Tax` row — healing it once from the ERPNext template when it predates the
+  field. A tax with no Account Head and no ERPNext link fails with a clear,
+  actionable reason before anything is posted to ERPNext (no half-created
+  draft), and re-running the tax sync fixes it.
+
+### Added
+- `PosProfile::hideUnavailableItems()` reads the ERPNext flag from the doc
+  snapshot (no migration — the flag already lives in `erpnext_data`).
+- `StockService::hideUnavailable()` applies the policy to a register item
+  query in one place, used by the bootstrap, search and draft paths.
+- Tests: `HideUnavailableItemsTest`, `TaxAccountHeadPushTest`, and a flag
+  regression case in `PosProfileSyncTest` (136 tests / 735 assertions).
+
 ## [0.7.0] — 2026-11-18
 
 Credit collection across vans, and van-aware document numbering.
