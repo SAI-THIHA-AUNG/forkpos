@@ -578,6 +578,27 @@ class SyncService
             throw new RuntimeException("Customer '{$customer->customer_name}' has no ERPNext link. Sync customers first.");
         }
 
+        // An earlier attempt created the document but failed to submit it (e.g. ERPNext
+        // refused for stock). Finish THAT document instead of creating a second one.
+        if ($invoice->erpnext_id) {
+            try {
+                $existing = $this->client->doc('Sales Invoice', $invoice->erpnext_id);
+            } catch (\Throwable) {
+                $existing = [];
+            }
+            $docstatus = $existing ? (int) ($existing['docstatus'] ?? 0) : null;
+            if ($docstatus === 1) {
+                return $invoice->erpnext_id;
+            }
+            if ($docstatus === 0) {
+                $this->submitDoc('Sales Invoice', $existing);
+
+                return $invoice->erpnext_id;
+            }
+            // Gone or cancelled in ERPNext: fall through and push a fresh document.
+            $invoice->forceFill(['erpnext_id' => null])->save();
+        }
+
         // The invoice's own POS profile is authoritative for company, price
         // list and warehouse — NOT the (possibly stale) global settings row.
         $profile = $invoice->posProfile;
@@ -662,6 +683,9 @@ class SyncService
         if (! $name) {
             throw new RuntimeException('ERPNext did not return a document name.');
         }
+
+        // Remember the draft right away: if the submit below fails, the retry must find it.
+        $invoice->forceFill(['erpnext_id' => $name])->save();
 
         // A REST create always leaves the document in Draft (Frappe ignores
         // `docstatus` in the payload). A draft invoice has no collectible
@@ -798,11 +822,19 @@ class SyncService
     /** A retry after a lost response must not pay twice: look for our reference first. */
     protected function findPaymentEntry(Collection $collection): ?string
     {
-        $rows = $this->client->list('Payment Entry', ['name'], [
+        $rows = $this->client->list('Payment Entry', ['name', 'docstatus'], [
             ['reference_no', '=', $collection->collection_no], ['docstatus', '!=', 2],
         ], 1);
+        if (! $rows) {
+            return null;
+        }
 
-        return $rows[0]['name'] ?? null;
+        // Found but still a draft (the submit failed last time): finish it, don't call it pushed.
+        if ((int) ($rows[0]['docstatus'] ?? 0) === 0) {
+            $this->submitDoc('Payment Entry', $this->client->doc('Payment Entry', $rows[0]['name']));
+        }
+
+        return $rows[0]['name'];
     }
 
     protected function createPaymentEntry(Collection $collection, CreditInvoice $invoice, array &$accounts): string
@@ -826,6 +858,10 @@ class SyncService
         }
 
         $amount = round((float) $collection->amount, 6);
+        $left = $pe['references'][0]['outstanding_amount'] ?? null;
+        if ($left !== null && $amount > round((float) $left, 6) + 0.009) {
+            throw new RuntimeException("ERPNext shows only {$left} left on {$invoice->erpnext_id}, less than the {$amount} collected — another van probably collected part of it. Refresh the invoice list.");
+        }
         $date = $collection->posting_date->toDateString();
         $pe['posting_date'] = $date;
         $pe['mode_of_payment'] = $collection->mode_of_payment;

@@ -376,4 +376,76 @@ class CreditCollectionTest extends TestCase
         $this->assertSame('ACC-SINV-TVP-.YYYY.-', DocNaming::vanSeries('ACC-SINV-.YYYY.-', 'TVP'));
         $this->assertLessThanOrEqual(32, strlen(DocNaming::number('ACC-SINV-', 'ABCDEFGH', 'CR', 2026, 99999)));
     }
+
+    public function test_failed_submit_keeps_the_draft_and_the_retry_does_not_create_a_second_invoice(): void
+    {
+        Item::query()->get()->each(fn ($i) => $i->forceFill(['erpnext_id' => $i->item_code])->save());
+        $this->creditSale(2.0)->assertCreated();
+
+        $submitFails = true;
+        $creates = 0;
+        Http::fake(function ($request) use (&$submitFails, &$creates) {
+            $u = urldecode($request->url());
+            if (str_contains($u, 'frappe.client.submit')) {
+                return $submitFails
+                    ? Http::response(['exc_type' => 'ValidationError', '_server_messages' => json_encode([json_encode(['message' => 'Insufficient stock'])])], 417)
+                    : Http::response(['message' => ['docstatus' => 1]]);
+            }
+            if ($request->method() === 'POST' && str_contains($u, '/api/resource/Sales Invoice')) {
+                $creates++;
+
+                return Http::response(['data' => ['name' => 'ACC-SINV-TVP-2026-00001', 'docstatus' => 0]]);
+            }
+            if (str_contains($u, '/api/resource/Sales Invoice/')) {
+                return Http::response(['data' => ['name' => 'ACC-SINV-TVP-2026-00001', 'docstatus' => 0]]);
+            }
+
+            return Http::response(['data' => []]);
+        });
+
+        $first = app(SyncService::class)->pushInvoices();
+        $this->assertSame(1, $first['failed']);
+        $this->assertSame('ACC-SINV-TVP-2026-00001', Invoice::firstOrFail()->erpnext_id, 'draft is remembered');
+
+        $submitFails = false;
+        $second = app(SyncService::class)->pushInvoices();
+
+        $this->assertSame(1, $second['pushed']);
+        $this->assertSame(1, $creates, 'retry must reuse the draft, not create another invoice');
+        $this->assertSame('synced', Invoice::firstOrFail()->sync_status);
+    }
+
+    public function test_draft_payment_entry_from_a_failed_submit_is_submitted_on_retry(): void
+    {
+        $this->fakeErp([$this->otherVanInvoice()]);
+        app(SyncService::class)->pullMasters(['credit_invoice']);
+        $credit = $this->credit();
+        $this->web()->postJson("/credit/{$credit->id}/collect", ['amount' => 4, 'mode_of_payment' => 'Cash'])->assertCreated();
+
+        $submitted = false;
+        Http::fake(function ($request) use (&$submitted) {
+            $u = urldecode($request->url());
+            if (str_contains($u, 'frappe.client.submit')) {
+                $submitted = true;
+
+                return Http::response(['message' => ['docstatus' => 1]]);
+            }
+            if (str_contains($u, '/api/resource/Payment Entry/')) {
+                return Http::response(['data' => ['name' => 'PE-DRAFT', 'docstatus' => 0]]);
+            }
+            if (str_contains($u, '/api/resource/Payment Entry')) {
+                return $request->method() === 'POST'
+                    ? Http::response(['data' => ['name' => 'SHOULD-NOT-CREATE', 'docstatus' => 1]])
+                    : Http::response(['data' => [['name' => 'PE-DRAFT', 'docstatus' => 0]]]);
+            }
+
+            return Http::response(['data' => []]);
+        });
+
+        $out = app(SyncService::class)->pushCollections();
+
+        $this->assertSame(1, $out['pushed']);
+        $this->assertTrue($submitted, 'the draft entry was submitted');
+        $this->assertSame('PE-DRAFT', Collection::firstOrFail()->erpnext_id);
+    }
 }

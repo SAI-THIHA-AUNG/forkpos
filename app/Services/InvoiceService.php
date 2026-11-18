@@ -618,7 +618,7 @@ class InvoiceService
         if ($invoice->creditInvoice()->exists() && $invoice->creditInvoice->collections()->exists()) {
             return 'Money has been collected against this credit sale, so it cannot be cancelled. Use Return instead.';
         }
-        if ($invoice->erpnext_id || $invoice->sync_status === 'synced') {
+        if ($invoice->sync_status === 'synced') {
             return 'This sale is already in ERPNext. Use Return to reverse it instead of cancelling.';
         }
 
