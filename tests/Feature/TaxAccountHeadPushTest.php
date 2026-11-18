@@ -137,24 +137,41 @@ class TaxAccountHeadPushTest extends TestCase
 
     public function test_pull_tax_captures_the_account_head_from_a_mixed_charge_type_template(): void
     {
-        Http::fake([
-            'erp.example.test/api/method/ping' => Http::response(['message' => 'pong'], 200),
-            'erp.example.test/api/resource/Sales%20Taxes%20and%20Charges%20Template' => Http::response(['data' => [
-                ['name' => 'Myanmar Commercial Tax', 'title' => 'Myanmar Commercial Tax', 'is_default' => 0],
-            ]], 200),
-            'erp.example.test/api/resource/Sales%20Taxes%20and%20Charges%20Template/Myanmar%20Commercial%20Tax' => Http::response(['data' => [
-                'name' => 'Myanmar Commercial Tax',
-                'title' => 'Myanmar Commercial Tax',
-                'is_default' => 0,
-                'taxes' => [
-                    // Rate row built without an account head (the gap that left
-                    // account_name null and caused the 417) ...
-                    ['charge_type' => 'On Net Total', 'account_head' => '', 'rate' => 5, 'description' => 'Commercial Tax', 'included_in_print_rate' => 1],
-                    // ... but a sibling row carries one, so the sync must fall back to it.
-                    ['charge_type' => 'Actual', 'account_head' => 'Commercial Tax Payable - ACME', 'rate' => 0],
-                ],
-            ]], 200),
-        ]);
+        // One closure for every URL: the list GET carries its filters as query
+        // params (?fields=...&filters=...&limit_page_length=...), so a stub
+        // keyed on the bare template path never matches the full URL. Match on
+        // the path substring instead — the doc URL first (more specific),
+        // then the list.
+        Http::fake(function ($request) {
+            $url = urldecode($request->url());
+
+            if (str_contains($url, '/api/method/ping')) {
+                return Http::response(['message' => 'pong'], 200);
+            }
+
+            if (str_contains($url, '/api/resource/Sales Taxes and Charges Template/Myanmar Commercial Tax')) {
+                return Http::response(['data' => [
+                    'name' => 'Myanmar Commercial Tax',
+                    'title' => 'Myanmar Commercial Tax',
+                    'is_default' => 0,
+                    'taxes' => [
+                        // Rate row built without an account head (the gap that left
+                        // account_name null and caused the 417) ...
+                        ['charge_type' => 'On Net Total', 'account_head' => '', 'rate' => 5, 'description' => 'Commercial Tax', 'included_in_print_rate' => 1],
+                        // ... but a sibling row carries one, so the sync must fall back to it.
+                        ['charge_type' => 'Actual', 'account_head' => 'Commercial Tax Payable - ACME', 'rate' => 0],
+                    ],
+                ]], 200);
+            }
+
+            if (str_contains($url, '/api/resource/Sales Taxes and Charges Template')) {
+                return Http::response(['data' => [
+                    ['name' => 'Myanmar Commercial Tax', 'title' => 'Myanmar Commercial Tax', 'is_default' => 0],
+                ]], 200);
+            }
+
+            return Http::response(['data' => []]);
+        });
 
         $result = app(SyncService::class)->pullMasters(['tax'], 50);
 
