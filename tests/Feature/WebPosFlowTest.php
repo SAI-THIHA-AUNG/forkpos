@@ -40,13 +40,14 @@ class WebPosFlowTest extends TestCase
     public function test_cashier_can_login_with_pin(): void
     {
         $this->post('/login', [
+            'user_id' => User::where('email', 'cashier@pos.test')->value('id'),
             'pin' => '5678',
         ])->assertRedirect('/');
     }
 
     public function test_invalid_pin_is_rejected(): void
     {
-        $this->from('/login')->post('/login', ['pin' => '0000'])
+        $this->from('/login')->post('/login', ['user_id' => User::where('email', 'cashier@pos.test')->value('id'), 'pin' => '0000'])
             ->assertSessionHasErrors(['pin']);
     }
 

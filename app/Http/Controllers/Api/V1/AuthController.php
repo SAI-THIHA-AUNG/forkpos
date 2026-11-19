@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use App\Services\UserLogin;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -13,35 +13,30 @@ class AuthController extends Controller
 {
     /**
      * POST /api/v1/auth/login
-     * Body: {email, password}  — or —  {pin}
+     * Body: {email, password}  — or —  {user_id, pin}  — or —  {email, pin}
+     * A PIN always belongs to one chosen user; GET /api/v1/auth/users lists who can use one.
      */
-    public function login(Request $request)
+    public function login(Request $request, UserLogin $userLogin)
     {
         $credentials = $request->validate([
-            'email' => ['required_without:pin', 'email'],
-            'password' => ['required_with:email', 'string'],
-            'pin' => ['required_without:email', 'string', 'digits_between:4,8'],
+            'email' => ['nullable', 'email'],
+            'password' => ['nullable', 'string'],
+            'user_id' => ['nullable', 'integer'],
+            'pin' => ['nullable', 'string', 'digits_between:4,8'],
         ]);
 
-        $user = null;
-        if (isset($credentials['pin'])) {
-            // PIN login — POS terminals / Android app quick sign-in.
-            $matches = User::where('is_active', true)->whereNotNull('pos_pin')->get()
-                ->filter(fn (User $u) => Hash::check($credentials['pin'], $u->pos_pin));
-            // Exactly one user must match: an ambiguous PIN must never pick "the first" account.
-            if ($matches->count() !== 1) {
-                throw ValidationException::withMessages(['pin' => ['Invalid PIN.']]);
+        if (filled($credentials['pin'] ?? null)) {
+            $user = filled($credentials['user_id'] ?? null)
+                ? User::find($credentials['user_id'])
+                : User::where('email', $credentials['email'] ?? '')->first();
+            if (! $user) {
+                throw ValidationException::withMessages(['pin' => ['Send user_id (or email) together with the PIN.']]);
             }
-            $user = $matches->first();
+            $user = $userLogin->withPin($user, $credentials['pin']);
+        } elseif (filled($credentials['email'] ?? null) && filled($credentials['password'] ?? null)) {
+            $user = $userLogin->withPassword($credentials['email'], $credentials['password']);
         } else {
-            $user = User::where('email', $credentials['email'])->first();
-            if (! $user || ! Hash::check($credentials['password'], $user->password)) {
-                throw ValidationException::withMessages(['email' => ['Invalid email or password.']]);
-            }
-        }
-
-        if (! $user->is_active) {
-            throw ValidationException::withMessages(['email' => ['This account is disabled.']]);
+            throw ValidationException::withMessages(['email' => ['Send email and password, or user_id and pin.']]);
         }
 
         if ($user->must_change_password) {
@@ -62,6 +57,18 @@ class AuthController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * GET /api/v1/auth/users — names only, for the PIN picker (no email, no role).
+     */
+    public function pinUsers()
+    {
+        $users = config('forkpos.login_user_picker')
+            ? User::where('is_active', true)->whereNotNull('pos_pin')->orderBy('name')->get(['id', 'name'])
+            : collect();
+
+        return response()->json(['data' => $users]);
     }
 
     /**

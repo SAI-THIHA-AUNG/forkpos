@@ -166,11 +166,19 @@ class SetupFlowTest extends TestCase
         $this->post('/login', ['email' => 'nobody@x.test', 'password' => 'wrong'])->assertStatus(429);
     }
 
-    public function test_an_ambiguous_pin_never_logs_anyone_in(): void
+    public function test_a_pin_never_logs_in_someone_else_who_shares_it(): void
     {
-        foreach (['a@x.test', 'b@x.test'] as $email) {
-            User::create(['name' => $email, 'email' => $email, 'password' => 'secret123', 'role' => 'cashier', 'is_active' => true, 'pos_pin' => '4321']);
-        }
+        $first = User::create(['name' => 'A', 'email' => 'a@x.test', 'password' => 'secret123', 'role' => 'cashier', 'is_active' => true, 'pos_pin' => '4321']);
+        $second = User::create(['name' => 'B', 'email' => 'b@x.test', 'password' => 'secret123', 'role' => 'cashier', 'is_active' => true, 'pos_pin' => '4321']);
+
+        $this->post('/login', ['user_id' => $second->id, 'pin' => '4321'])->assertRedirect('/');
+        $this->assertAuthenticatedAs($second);
+        $this->assertNotEquals($first->id, auth()->id());
+    }
+
+    public function test_a_pin_without_a_chosen_user_is_rejected(): void
+    {
+        User::create(['name' => 'A', 'email' => 'a@x.test', 'password' => 'secret123', 'role' => 'cashier', 'is_active' => true, 'pos_pin' => '4321']);
 
         $this->from('/login')->post('/login', ['pin' => '4321'])->assertSessionHasErrors('pin');
         $this->assertGuest();

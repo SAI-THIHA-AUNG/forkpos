@@ -27,7 +27,7 @@
             </div>
             @endif
 
-            @php($pinTab = $errors->has('pin'))
+            @php($pinTab = $errors->has('pin') || old('user_id'))
             <ul class="flex border-b border-slate-200 mb-6 text-sm">
                 <li><button type="button" data-tab="email" class="tab-btn px-4 py-2 font-medium border-b-2 {{ $pinTab ? 'border-transparent text-slate-500 hover:text-slate-700' : 'border-brand-600 text-brand-700' }}">Email &amp; password</button></li>
                 <li><button type="button" data-tab="pin" class="tab-btn px-4 py-2 font-medium border-b-2 {{ $pinTab ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700' }}">PIN</button></li>
@@ -50,10 +50,23 @@
                 </div>
 
                 <div data-pane="pin" class="space-y-4 {{ $pinTab ? '' : 'hidden' }}">
+                    @if($pinUsers->isNotEmpty())
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Who are you?</label>
+                        <select name="user_id" @disabled(! $pinTab) class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-brand-500 outline-none">
+                            <option value="">Choose your name…</option>
+                            @foreach($pinUsers as $pinUser)
+                            <option value="{{ $pinUser->id }}" @selected((string) old('user_id') === (string) $pinUser->id)>{{ $pinUser->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    @else
+                    <p class="text-xs text-slate-500">No one has chosen a PIN yet. Sign in with email &amp; password first, then set your PIN.</p>
+                    @endif
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">PIN (4–8 digits)</label>
                         <input type="password" inputmode="numeric" pattern="[0-9]*" name="pin" maxlength="8" @disabled(! $pinTab) class="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-2xl tracking-[0.5em] focus:border-brand-500 focus:ring-brand-500 outline-none" placeholder="••••">
-                        <p class="text-xs text-slate-500 mt-2">PIN login matches against all active users — set a unique PIN per cashier.</p>
+                        <p class="text-xs text-slate-500 mt-2">Your PIN only works for the name you choose. ERPNext users must confirm their ERPNext password every {{ config('forkpos.erpnext_reverify_days') }} days.</p>
                     </div>
                 </div>
 

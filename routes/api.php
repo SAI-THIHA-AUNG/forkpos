@@ -34,6 +34,7 @@ Route::prefix('v1')->group(function () {
         ]);
     });
 
+    Route::get('auth/users', [AuthController::class, 'pinUsers'])->middleware('throttle:login');
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::get('setup/status', fn () => response()->json(['data' => app(SetupState::class)->publicStatus()]));
     Route::post('auth/register', [AuthController::class, 'register']); // open only while zero users exist

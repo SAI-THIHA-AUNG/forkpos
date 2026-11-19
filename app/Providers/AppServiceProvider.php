@@ -25,7 +25,7 @@ class AppServiceProvider extends ServiceProvider
         // 5 attempts/minute per IP + identity. Stops PIN/password brute force;
         // a 4-digit PIN has only 10,000 combinations.
         RateLimiter::for('login', function (Request $request) {
-            $who = strtolower((string) ($request->input('email') ?: 'pin'));
+            $who = strtolower((string) ($request->input('email') ?: 'pin:'.$request->input('user_id')));
 
             return Limit::perMinute(5)->by($request->ip().'|'.$who);
         });

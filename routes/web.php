@@ -6,6 +6,7 @@ use App\Http\Controllers\Web\CustomerController;
 use App\Http\Controllers\Web\DashboardController;
 use App\Http\Controllers\Web\DraftController;
 use App\Http\Controllers\Web\InvoiceController;
+use App\Http\Controllers\Web\PinController;
 use App\Http\Controllers\Web\PosController;
 use App\Http\Controllers\Web\ProfileController;
 use App\Http\Controllers\Web\SettingController;
@@ -31,6 +32,10 @@ Route::post('logout', [AuthController::class, 'logout'])->name('logout');
 
 // ----- Authenticated (session) ---------------------------------------------
 Route::middleware('auth')->group(function () {
+    // Set or change my own PIN (reachable before setup finishes: the first sign-in lands here).
+    Route::get('account/pin', [PinController::class, 'edit'])->name('account.pin');
+    Route::put('account/pin', [PinController::class, 'update'])->name('account.pin.update');
+
     // First-run setup — reachable BEFORE setup is complete.
     Route::get('setup/password', [SetupController::class, 'showPassword'])->name('setup.password');
     Route::post('setup/password', [SetupController::class, 'updatePassword'])->name('setup.password.update');

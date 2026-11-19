@@ -59,6 +59,38 @@ class ErpNextClient
         return $this->url;
     }
 
+    /**
+     * Ask ERPNext whether this person's own password is right (POST /api/method/login).
+     * The app's API key is NOT used: it identifies the app, not the person. The
+     * password is sent once, never stored or logged.
+     *
+     * @return bool true = accepted, false = rejected (wrong password, disabled or unknown user)
+     *
+     * @throws RuntimeException when ERPNext cannot answer (offline, server error)
+     */
+    public function verifyUserPassword(string $user, string $password): bool
+    {
+        if ($this->url === '') {
+            throw new RuntimeException('ERPNext is not connected on this terminal.');
+        }
+
+        try {
+            $response = Http::asForm()->acceptJson()->timeout(15)
+                ->post($this->url.'/api/method/login', ['usr' => $user, 'pwd' => $password]);
+        } catch (ConnectionException) {
+            throw new RuntimeException('ERPNext is not reachable right now.');
+        }
+
+        if ($response->successful()) {
+            return true;
+        }
+        if (in_array($response->status(), [401, 403], true)) {
+            return false;
+        }
+
+        throw new RuntimeException('ERPNext answered HTTP '.$response->status().' to the sign-in check.');
+    }
+
     public function tokenHeader(): array
     {
         return [

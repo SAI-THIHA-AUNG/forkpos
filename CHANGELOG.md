@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project follows rough semantic versioning.
 
+## [Unreleased]
+
+### Added
+- **ERPNext password sign-in.** Users pulled from ERPNext sign in with their ERPNext
+  email and password, verified by ERPNext (`POST /api/method/login`, not the API key
+  pair). The password is used once and never stored.
+- **Personal PIN.** After that first sign-in the user is sent to `/account/pin` to choose
+  a PIN. The login page PIN tab now has a "Who are you?" list (names only); the PIN is
+  checked only against the chosen user. API: `GET /api/v1/auth/users`, and
+  `POST /api/v1/auth/login` takes `{user_id, pin}`.
+- **30-day re-check.** `users.erpnext_login_at` records the last ERPNext password check;
+  PIN sign-in for ERPNext users stops after `FORKPOS_ERPNEXT_REVERIFY_DAYS` (default 30)
+  until they sign in with their password again. Offline PIN sign-in works inside the window.
+- Per-user PIN lockout (`FORKPOS_PIN_MAX_ATTEMPTS`, default 5 wrong PINs -> 15 minutes).
+
+### Changed
+- PIN-only sign-in (PIN matched against every user) is removed; PINs no longer have to be
+  unique. Clients that sent only `{pin}` must now send `user_id` too.
+- ERPNext-linked users can no longer sign in with their random local password.
+
 ## [0.7.1] — 2026-11-19
 
 ERPNext POS Profile settings now reach the register, and tax pushes no longer

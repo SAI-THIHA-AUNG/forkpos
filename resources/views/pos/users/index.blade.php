@@ -4,7 +4,7 @@
 @section('content')
 <div class="max-w-4xl mx-auto">
     <h1 class="text-xl font-bold text-slate-800 mb-1">Users</h1>
-    <p class="text-sm text-slate-500 mb-4">Cashiers imported from ERPNext's "Applicable for Users" have no PIN yet — set one so they can sign in. A PIN must be unique to one person.</p>
+    <p class="text-sm text-slate-500 mb-4">Cashiers imported from ERPNext's "Applicable for Users" choose their own PIN after their first sign-in with their ERPNext password. A manager can also set one here; PINs may repeat because each person picks their name first.</p>
 
     @include('pos.partials.flash')
     @if ($errors->any())

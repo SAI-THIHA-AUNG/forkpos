@@ -32,7 +32,7 @@ layer, backed by SQLite (or MySQL). No Frappe framework.
   list, warehouse, payment methods, pricing flags), the invoice numbering series,
   the catalog and unpaid invoices are pulled from ERPNext; invoices and
   collections push back as Sales Invoices and Payment Entries.
-- Roles (admin / manager / cashier), PIN login, and offline-safe sales
+- Roles (admin / manager / cashier), sign-in with your ERPNext password once, then a personal PIN (choose your name + PIN, works offline, ERPNext password re-checked every 30 days), and offline-safe sales
   (`offline_id` idempotency).
 
 ## Vans, POS profiles and shifts
@@ -131,7 +131,7 @@ feature (`/credit`); it has no API endpoints yet.
 ## Development
 
 ```bash
-php artisan test          # PHPUnit feature tests (in-memory SQLite) — 142 tests / 749 assertions
+php artisan test          # PHPUnit feature tests (in-memory SQLite) — 155 tests
 vendor/bin/pint --dirty   # code style
 ```
 

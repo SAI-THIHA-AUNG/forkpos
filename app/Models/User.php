@@ -33,6 +33,7 @@ class User extends Authenticatable
         'is_active',
         'must_change_password',
         'erpnext_id',
+        'erpnext_login_at',
     ];
 
     /**
@@ -59,6 +60,7 @@ class User extends Authenticatable
             'pos_pin' => 'hashed',
             'is_active' => 'boolean',
             'must_change_password' => 'boolean',
+            'erpnext_login_at' => 'datetime',
         ];
     }
 

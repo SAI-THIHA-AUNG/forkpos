@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Item;
 use App\Models\PosProfile;
 use App\Models\Tax;
+use App\Models\User;
 use Database\Seeders\DemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -140,7 +141,10 @@ class PosFlowTest extends TestCase
 
     public function test_pin_login_and_cashier_permissions(): void
     {
-        $response = $this->postJson('/api/v1/auth/login', ['pin' => '5678']);
+        $response = $this->postJson('/api/v1/auth/login', [
+            'user_id' => User::where('email', 'cashier@pos.test')->value('id'),
+            'pin' => '5678',
+        ]);
         $response->assertOk();
         $token = $response->json('data.token');
         $this->assertEquals('cashier', $response->json('data.user.role'));
